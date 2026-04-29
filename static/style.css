@@ -336,16 +336,24 @@ pre,
   grid-column: 1 / -1;
 }
 
-.checkbox-field {
+.checkbox-field,
+.form-grid label.checkbox-field,
+.inline-create-form label.checkbox-field {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .checkbox-field input {
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
   margin: 0;
+}
+
+.checkbox-field span {
+  display: inline-block;
+  line-height: 1.25;
 }
 
 .field-row {
