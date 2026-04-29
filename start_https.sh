@@ -7,6 +7,7 @@ RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-$SCRIPT_DIR/.runtime.env}"
 HOST="${HOST:-}"
 SSL_CERT_FILE="${SSL_CERT_FILE:-}"
 SSL_KEY_FILE="${SSL_KEY_FILE:-}"
+MYSQLSH_BINARY="${MYSQLSH_BINARY:-}"
 
 if [[ -f "$RUNTIME_ENV_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -16,7 +17,7 @@ fi
 HOST="${HOST:-0.0.0.0}"
 DEFAULT_HTTPS_PORT="${DEFAULT_HTTPS_PORT:-443}"
 PORT="${PORT:-$DEFAULT_HTTPS_PORT}"
-export HOST PORT SSL_CERT_FILE SSL_KEY_FILE
+export HOST PORT SSL_CERT_FILE SSL_KEY_FILE MYSQLSH_BINARY
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python runtime not found at $PYTHON_BIN. Run ./setup.sh first or set PYTHON_BIN." >&2

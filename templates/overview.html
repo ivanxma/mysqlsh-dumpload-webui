@@ -33,6 +33,7 @@
 <section class="tab-shell" data-tab-shell data-default-tab="overview-environment">
   <div class="tab-bar" role="tablist">
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-environment">Environment</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-events">Events</button>
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-workflow">Workflow</button>
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-pars">Active PARs</button>
   </div>
@@ -73,6 +74,32 @@
       </article>
 
       <article class="panel">
+        <h3>Server Identity &amp; GTID</h3>
+        <dl class="detail-list compact">
+          <div>
+            <dt>Server UUID</dt>
+            <dd>{{ mysql_overview.server_uuid or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Server ID</dt>
+            <dd>{{ mysql_overview.server_id or "-" }}</dd>
+          </div>
+          <div>
+            <dt>GTID Mode</dt>
+            <dd>{{ mysql_overview.gtid_mode or "-" }}</dd>
+          </div>
+          <div>
+            <dt>GTID Executed</dt>
+            <dd>{{ mysql_overview.gtid_executed or "-" }}</dd>
+          </div>
+          <div>
+            <dt>GTID Purged</dt>
+            <dd>{{ mysql_overview.gtid_purged or "-" }}</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="panel">
         <h3>Object Storage</h3>
         <dl class="detail-list compact">
           <div>
@@ -98,6 +125,153 @@
         </dl>
       </article>
     </div>
+
+    {% if mysql_overview.replication_issues or mysql_overview.applier_issues %}
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Replication Issues</h3>
+          <p class="help-text">Only channels and applier workers with actual errors are shown.</p>
+        </div>
+        <span class="badge warn">Attention</span>
+      </div>
+
+      <div class="overview-stack">
+        {% if mysql_overview.replication_issues %}
+        <section>
+          <h4>Replica Status Errors</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Channel</th>
+                  <th>Source</th>
+                  <th>Receiver</th>
+                  <th>Applier</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in mysql_overview.replication_issues %}
+                <tr>
+                  <td>{{ item.channel_name }}</td>
+                  <td>{{ item.source }}</td>
+                  <td>{{ item.io_state }}</td>
+                  <td>{{ item.sql_state }}</td>
+                  <td>
+                    <div>{{ item.error_summary }}</div>
+                    {% if item.last_io_error_timestamp or item.last_sql_error_timestamp %}
+                    <div class="help-text">
+                      {% if item.last_io_error_timestamp %}Receiver at {{ item.last_io_error_timestamp }}{% endif %}
+                      {% if item.last_io_error_timestamp and item.last_sql_error_timestamp %} | {% endif %}
+                      {% if item.last_sql_error_timestamp %}Applier at {{ item.last_sql_error_timestamp }}{% endif %}
+                    </div>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if mysql_overview.applier_issues %}
+        <section>
+          <h4>Applier Worker Errors</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Channel</th>
+                  <th>Worker</th>
+                  <th>Service State</th>
+                  <th>Last Applied</th>
+                  <th>Applying</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in mysql_overview.applier_issues %}
+                <tr>
+                  <td>{{ item.channel_name }}</td>
+                  <td>{{ item.worker_id }}</td>
+                  <td>{{ item.service_state }}</td>
+                  <td>{{ item.last_applied_transaction or "-" }}</td>
+                  <td>{{ item.applying_transaction or "-" }}</td>
+                  <td>
+                    <div>[{{ item.last_error_number }}] {{ item.last_error_message }}</div>
+                    {% if item.last_error_timestamp %}
+                    <div class="help-text">{{ item.last_error_timestamp }}</div>
+                    {% endif %}
+                    {% if item.thread_id and item.thread_id != "-" %}
+                    <div class="help-text">Thread {{ item.thread_id }}</div>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </article>
+    {% endif %}
+  </section>
+
+  <section class="tab-panel" id="overview-events" role="tabpanel" data-tab-panel hidden>
+    {% set event_scheduler_status = (mysql_overview.event_scheduler or "").upper() %}
+    <div class="split-layout">
+      <article class="panel">
+        <h3>Event Scheduler</h3>
+        <dl class="detail-list compact">
+          <div>
+            <dt>Status</dt>
+            <dd>
+              <span class="badge {% if event_scheduler_status in ('ON', '1') %}good{% else %}warn{% endif %}">
+                {{ mysql_overview.event_scheduler or "-" }}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt>Visible Events</dt>
+            <dd>{{ mysql_overview.event_count }}</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+
+    {% if mysql_overview.events %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Schema</th>
+            <th>Event</th>
+            <th>Enabled</th>
+            <th>Schedule</th>
+            <th>Last Executed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in mysql_overview.events %}
+          <tr>
+            <td>{{ item.event_schema }}</td>
+            <td>{{ item.event_name }}</td>
+            <td><span class="badge {{ item.status_badge_class }}">{{ item.status }}</span></td>
+            <td>{{ item.schedule }}</td>
+            <td>{{ item.last_executed or "-" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p>No visible events were found for this connection.</p>
+    </div>
+    {% endif %}
   </section>
 
   <section class="tab-panel" id="overview-workflow" role="tabpanel" data-tab-panel hidden>
@@ -115,7 +289,7 @@
       <article class="panel workflow-card">
         <span class="meta-label">3</span>
         <h3>Run mysqlsh</h3>
-        <p>Use the Operations page to execute <code>dumpInstance</code>, <code>dumpSchemas</code>, or <code>loadDump</code> and review stdout, stderr, and the generated script.</p>
+        <p>Use the Operations page to execute <code>dumpInstance</code>, <code>dumpSchemas</code>, or <code>loadDump</code> and review stdout, stderr, and the generated Python call.</p>
       </article>
     </div>
   </section>

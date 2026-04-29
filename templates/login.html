@@ -59,26 +59,31 @@
               <input name="database" id="database" type="text" value="{{ selected_profile.database or 'mysql' }}">
             </label>
 
-            <label class="checkbox-field">
+            <label class="checkbox-field full-span">
               <input name="ssh_enabled" id="ssh_enabled" type="checkbox" value="1" {% if selected_profile.ssh_enabled %}checked{% endif %}>
               <span>Use SSH Tunnel</span>
             </label>
-            <label>
+            <label class="ssh-config-field" data-ssh-config-field>
               SSH Jump Host
-              <input name="ssh_host" id="ssh_host" type="text" value="{{ selected_profile.ssh_host }}">
+              <input name="ssh_host" id="ssh_host" type="text" value="{{ selected_profile.ssh_host }}" {% if not selected_profile.ssh_enabled %}disabled{% endif %}>
             </label>
-            <label>
+            <label class="ssh-config-field" data-ssh-config-field>
               SSH Port
-              <input name="ssh_port" id="ssh_port" type="number" min="1" value="{{ selected_profile.ssh_port }}">
+              <input name="ssh_port" id="ssh_port" type="number" min="1" value="{{ selected_profile.ssh_port }}" {% if not selected_profile.ssh_enabled %}disabled{% endif %}>
             </label>
-            <label>
+            <label class="ssh-config-field" data-ssh-config-field>
               SSH User
-              <input name="ssh_user" id="ssh_user" type="text" value="{{ selected_profile.ssh_user }}">
+              <input name="ssh_user" id="ssh_user" type="text" value="{{ selected_profile.ssh_user }}" {% if not selected_profile.ssh_enabled %}disabled{% endif %}>
             </label>
-            <label class="full-span">
+            <label class="full-span ssh-config-field" data-ssh-config-field>
               Private Key Path
-              <input name="ssh_key_path" id="ssh_key_path" type="text" value="{{ selected_profile.ssh_key_path }}" placeholder="~/.ssh/id_rsa">
+              <input name="ssh_key_path" id="ssh_key_path" type="text" value="{{ selected_profile.ssh_key_path }}" placeholder="~/.ssh/id_rsa" {% if not selected_profile.ssh_enabled %}disabled{% endif %}>
             </label>
+            <label class="full-span ssh-config-field" data-ssh-config-field>
+              MySQL Shell SSH Config File
+              <input name="ssh_config_file" id="ssh_config_file" type="text" value="{{ selected_profile.ssh_config_file }}" placeholder="~/.ssh/config" {% if not selected_profile.ssh_enabled %}disabled{% endif %}>
+            </label>
+            <p class="help-text full-span">Optional. Applied only to MySQL Shell dump/load jobs so you can add SSH keepalive settings without changing the app login tunnel.</p>
 
             <label>
               MySQL Username *
@@ -102,6 +107,7 @@
         const profiles = {{ profiles|tojson }};
         const profilePicker = document.getElementById("profile-picker");
         const createProfileLink = document.getElementById("create-profile-link");
+        const sshConfigFieldLabels = Array.from(document.querySelectorAll("[data-ssh-config-field]"));
         const fields = {
           profile_name: document.getElementById("profile_name"),
           host: document.getElementById("host"),
@@ -111,13 +117,25 @@
           ssh_host: document.getElementById("ssh_host"),
           ssh_port: document.getElementById("ssh_port"),
           ssh_user: document.getElementById("ssh_user"),
-          ssh_key_path: document.getElementById("ssh_key_path")
+          ssh_key_path: document.getElementById("ssh_key_path"),
+          ssh_config_file: document.getElementById("ssh_config_file")
+        };
+
+        const syncSshFields = () => {
+          const enabled = !!fields.ssh_enabled.checked;
+          ["ssh_host", "ssh_port", "ssh_user", "ssh_key_path", "ssh_config_file"].forEach((key) => {
+            fields[key].disabled = !enabled;
+          });
+          sshConfigFieldLabels.forEach((label) => {
+            label.classList.toggle("is-disabled", !enabled);
+          });
         };
 
         const applyProfile = (profileName) => {
           const profile = profiles.find((item) => item.name === profileName);
           if (!profile) {
             createProfileLink.href = "{{ url_for('profile_page') }}";
+            syncSshFields();
             return;
           }
           fields.profile_name.value = profile.name || "";
@@ -129,13 +147,17 @@
           fields.ssh_port.value = profile.ssh_port || 22;
           fields.ssh_user.value = profile.ssh_user || "";
           fields.ssh_key_path.value = profile.ssh_key_path || "";
+          fields.ssh_config_file.value = profile.ssh_config_file || "";
           createProfileLink.href = "{{ url_for('profile_page') }}" + "?selected_profile=" + encodeURIComponent(profile.name || "");
+          syncSshFields();
         };
 
         profilePicker.addEventListener("change", (event) => {
           applyProfile(event.target.value);
         });
+        fields.ssh_enabled.addEventListener("change", syncSshFields);
         applyProfile(profilePicker.value);
+        syncSshFields();
       })();
     </script>
   </body>

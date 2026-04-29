@@ -10,26 +10,65 @@
 <section class="tab-shell">
   <div class="tab-bar">
     {% for value, label in shell_operation_options %}
-    <a class="tab-link {% if operation == value %}active{% endif %}" href="{{ url_for('shell_operations_page', operation=value) }}">{{ label }}</a>
+    <a class="tab-link {% if shell_page == value %}active{% endif %}" href="{{ url_for('shell_operations_page', page=value, option_profile_kind=option_profile_kind, dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">{{ label }}</a>
     {% endfor %}
+    <a class="tab-link {% if is_option_profiles_page %}active{% endif %}" href="{{ url_for('shell_operations_page', page='option-profiles', option_profile_kind=option_profile_kind, dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">Option Profiles</a>
+    <a class="tab-link {% if is_history_page %}active{% endif %}" href="{{ url_for('shell_operations_page', page='history', option_profile_kind=option_profile_kind, dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">History</a>
   </div>
 </section>
 
-{% if operation == "dump-instance" %}
+{% if is_option_profiles_page %}
 <section class="panel">
-  <h3>dumpInstance</h3>
-  <form method="post" class="form-grid">
-    <input type="hidden" name="operation" value="dump-instance">
+  <h3>Option Profiles</h3>
+  <p class="help-text">Choose the profile type, then define and save the reusable MySQL Shell option set on this tab.</p>
 
+  <form method="get" class="form-grid">
+    <input type="hidden" name="page" value="option-profiles">
+    <input type="hidden" name="operation" value="option-profiles">
+    <input type="hidden" name="dump_option_profile_name" value="{{ selected_dump_option_profile_name }}">
+    <input type="hidden" name="load_option_profile_name" value="{{ selected_load_option_profile_name }}">
+    <div class="full-span">
+      <span class="meta-label">Profile Type</span>
+      <div class="field-actions-inline">
+        <label class="checkbox-field">
+          <input name="option_profile_kind" type="radio" value="dump" {% if option_profile_kind == "dump" %}checked{% endif %} data-option-profile-kind-radio>
+          <span>Dump Profile</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="option_profile_kind" type="radio" value="load" {% if option_profile_kind == "load" %}checked{% endif %} data-option-profile-kind-radio>
+          <span>Load Profile</span>
+        </label>
+      </div>
+    </div>
+  </form>
+
+  {% if option_profile_kind == "dump" %}
+  <form method="post" class="form-grid">
+    <input type="hidden" name="page" value="option-profiles">
+    <input type="hidden" name="operation" value="option-profiles">
+    <input type="hidden" name="option_profile_kind" value="dump">
+    <input type="hidden" name="load_option_profile_name" value="{{ selected_load_option_profile_name }}">
+
+    <div class="field-row">
+      <label>
+        Dump Option Profile
+        <select name="dump_option_profile_name" data-option-profile-select>
+          <option value="">Custom options</option>
+          {% for entry in dump_option_profile_entries %}
+          <option value="{{ entry.name }}" {% if selected_dump_option_profile_name == entry.name %}selected{% endif %}>{{ entry.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-actions-inline">
+        <button class="button secondary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
+      </div>
+    </div>
     <label>
-      Target PAR *
-      <select name="dump_instance_par_id">
-        <option value="">Choose a read/write PAR</option>
-        {% for entry in dump_pars %}
-        <option value="{{ entry.id }}" {% if form_state.dump_instance_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
-        {% endfor %}
-      </select>
+      Profile Name
+      <input name="dump_option_profile_edit_name" type="text" value="{{ dump_option_profile_edit_name }}" placeholder="nightly-dump">
     </label>
+    <p class="help-text full-span">Dump profiles are reused by both <code>dumpInstance</code> and <code>dumpSchemas</code>. Dump-instance-only user and schema filter fields are also maintained here.</p>
+
     <label>
       Threads
       <input name="dump_instance_threads" type="number" min="1" value="{{ form_state.dump_instance_threads }}">
@@ -228,241 +267,46 @@
       <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
     </details>
 
-    <p class="help-text full-span">The selected prefix should be empty before running <code>dumpInstance</code>.</p>
-    <div class="form-actions">
-      <button class="button primary" type="submit">Run dumpInstance</button>
+    <div class="form-actions full-span">
+      <button class="button secondary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
+      <button class="button secondary danger" type="submit" name="option_profile_action" value="delete" {% if not selected_dump_option_profile_name %}disabled{% endif %}>Delete Profile</button>
     </div>
   </form>
-</section>
-{% elif operation == "dump-schemas" %}
-<section class="panel">
-  <h3>dumpSchemas</h3>
+
+  {% else %}
   <form method="post" class="form-grid">
-    <input type="hidden" name="operation" value="dump-schemas">
+    <input type="hidden" name="page" value="option-profiles">
+    <input type="hidden" name="operation" value="option-profiles">
+    <input type="hidden" name="option_profile_kind" value="load">
+    <input type="hidden" name="dump_option_profile_name" value="{{ selected_dump_option_profile_name }}">
 
-    <label>
-      Target PAR *
-      <select name="dump_schemas_par_id">
-        <option value="">Choose a read/write PAR</option>
-        {% for entry in dump_pars %}
-        <option value="{{ entry.id }}" {% if form_state.dump_schemas_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Threads
-      <input name="dump_schemas_threads" type="number" min="1" value="{{ form_state.dump_schemas_threads }}">
-    </label>
-    <label>
-      Max Rate
-      <input name="dump_schemas_max_rate" type="text" value="{{ form_state.dump_schemas_max_rate }}" placeholder="0 or 100M">
-    </label>
-    <label>
-      Compression
-      <select name="dump_schemas_compression">
-        {% for value, label in compression_options %}
-        <option value="{{ value }}" {% if form_state.dump_schemas_compression == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Dialect
-      <select name="dump_schemas_dialect">
-        {% for value, label in dump_dialect_options %}
-        <option value="{{ value }}" {% if form_state.dump_schemas_dialect == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Bytes Per Chunk
-      <input name="dump_schemas_bytes_per_chunk" type="text" value="{{ form_state.dump_schemas_bytes_per_chunk }}" placeholder="64M">
-    </label>
-    <label>
-      Target Version
-      <input name="dump_schemas_target_version" type="text" value="{{ form_state.dump_schemas_target_version }}" placeholder="9.7.0">
-    </label>
-    <label>
-      Default Character Set
-      <input name="dump_schemas_default_character_set" type="text" value="{{ form_state.dump_schemas_default_character_set }}">
-    </label>
-
-    <label class="full-span">
-      Schemas *
-      <select class="schema-picker" name="schemas" multiple size="8">
-        {% for schema in user_schemas %}
-        <option value="{{ schema }}" {% if schema in selected_schemas %}selected{% endif %}>{{ schema }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% if schema_error %}
-    <p class="help-text full-span">{{ schema_error }}</p>
-    {% endif %}
-
-    <details class="form-section full-span" open>
-      <summary>Execution Controls</summary>
-      <div class="option-grid">
-        <label class="checkbox-field">
-          <input name="dump_schemas_show_progress" type="checkbox" value="1" {% if form_state.dump_schemas_show_progress %}checked{% endif %}>
-          <span>Show progress</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_dry_run" type="checkbox" value="1" {% if form_state.dump_schemas_dry_run %}checked{% endif %}>
-          <span>Dry run</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_consistent" type="checkbox" value="1" {% if form_state.dump_schemas_consistent %}checked{% endif %}>
-          <span>Consistent</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_skip_consistency_checks" type="checkbox" value="1" {% if form_state.dump_schemas_skip_consistency_checks %}checked{% endif %}>
-          <span>Skip consistency checks</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_skip_upgrade_checks" type="checkbox" value="1" {% if form_state.dump_schemas_skip_upgrade_checks %}checked{% endif %}>
-          <span>Skip upgrade checks</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_chunking" type="checkbox" value="1" {% if form_state.dump_schemas_chunking %}checked{% endif %}>
-          <span>Chunking</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_checksum" type="checkbox" value="1" {% if form_state.dump_schemas_checksum %}checked{% endif %}>
-          <span>Checksum</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_tz_utc" type="checkbox" value="1" {% if form_state.dump_schemas_tz_utc %}checked{% endif %}>
-          <span>Convert timestamps to UTC</span>
-        </label>
-      </div>
-    </details>
-
-    <details class="form-section full-span" open>
-      <summary>Dump Content</summary>
-      <div class="option-grid">
-        <label class="checkbox-field">
-          <input name="dump_schemas_ddl_only" type="checkbox" value="1" {% if form_state.dump_schemas_ddl_only %}checked{% endif %}>
-          <span>DDL only</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_data_only" type="checkbox" value="1" {% if form_state.dump_schemas_data_only %}checked{% endif %}>
-          <span>Data only</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_events" type="checkbox" value="1" {% if form_state.dump_schemas_events %}checked{% endif %}>
-          <span>Events</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_routines" type="checkbox" value="1" {% if form_state.dump_schemas_routines %}checked{% endif %}>
-          <span>Routines</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_triggers" type="checkbox" value="1" {% if form_state.dump_schemas_triggers %}checked{% endif %}>
-          <span>Triggers</span>
-        </label>
-        <label class="checkbox-field">
-          <input name="dump_schemas_libraries" type="checkbox" value="1" {% if form_state.dump_schemas_libraries %}checked{% endif %}>
-          <span>Libraries</span>
-        </label>
-      </div>
-    </details>
-
-    <details class="form-section full-span">
-      <summary>Filters</summary>
-      <div class="option-grid two-column">
-        <label>
-          Include Tables
-          <textarea name="dump_schemas_include_tables" rows="3" class="textarea-input" placeholder="sales.orders&#10;sales.items">{{ form_state.dump_schemas_include_tables }}</textarea>
-        </label>
-        <label>
-          Exclude Tables
-          <textarea name="dump_schemas_exclude_tables" rows="3" class="textarea-input" placeholder="audit.logs">{{ form_state.dump_schemas_exclude_tables }}</textarea>
-        </label>
-        <label>
-          Include Events
-          <textarea name="dump_schemas_include_events" rows="3" class="textarea-input" placeholder="app.cleanup_event">{{ form_state.dump_schemas_include_events }}</textarea>
-        </label>
-        <label>
-          Exclude Events
-          <textarea name="dump_schemas_exclude_events" rows="3" class="textarea-input" placeholder="app.legacy_event">{{ form_state.dump_schemas_exclude_events }}</textarea>
-        </label>
-        <label>
-          Include Routines
-          <textarea name="dump_schemas_include_routines" rows="3" class="textarea-input" placeholder="app.process_order">{{ form_state.dump_schemas_include_routines }}</textarea>
-        </label>
-        <label>
-          Exclude Routines
-          <textarea name="dump_schemas_exclude_routines" rows="3" class="textarea-input" placeholder="app.old_proc">{{ form_state.dump_schemas_exclude_routines }}</textarea>
-        </label>
-        <label>
-          Include Triggers
-          <textarea name="dump_schemas_include_triggers" rows="3" class="textarea-input" placeholder="app.orders.audit_trigger">{{ form_state.dump_schemas_include_triggers }}</textarea>
-        </label>
-        <label>
-          Exclude Triggers
-          <textarea name="dump_schemas_exclude_triggers" rows="3" class="textarea-input" placeholder="app.orders.old_trigger">{{ form_state.dump_schemas_exclude_triggers }}</textarea>
-        </label>
-        <label>
-          Include Libraries
-          <textarea name="dump_schemas_include_libraries" rows="3" class="textarea-input" placeholder="app.my_library">{{ form_state.dump_schemas_include_libraries }}</textarea>
-        </label>
-        <label>
-          Exclude Libraries
-          <textarea name="dump_schemas_exclude_libraries" rows="3" class="textarea-input" placeholder="app.legacy_library">{{ form_state.dump_schemas_exclude_libraries }}</textarea>
-        </label>
-      </div>
-    </details>
-
-    <details class="form-section full-span">
-      <summary>HeatWave Compatibility</summary>
-      <div class="option-grid">
-        <label class="checkbox-field">
-          <input name="dump_schemas_ocimds" type="checkbox" value="1" {% if form_state.dump_schemas_ocimds %}checked{% endif %}>
-          <span>Enable HeatWave compatibility checks</span>
-        </label>
-        <label class="full-span">
-          Compatibility Transformations
-          <select class="schema-picker" name="dump_schemas_compatibility" multiple size="8">
-            {% for value, label in dump_compatibility_options %}
-            <option value="{{ value }}" {% if value in form_state.dump_schemas_compatibility %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-    </details>
-
-    <details class="form-section full-span">
-      <summary>Advanced JSON Options</summary>
-      <label class="full-span">
-        Additional MySQL Shell options object
-        <textarea name="dump_schemas_advanced_json" rows="8" class="textarea-input code-area" placeholder='{"where": {"sales.orders": "status = \"OPEN\""}}'>{{ form_state.dump_schemas_advanced_json }}</textarea>
+    <div class="field-row">
+      <label>
+        Load Option Profile
+        <select name="load_option_profile_name" data-option-profile-select>
+          <option value="">Custom options</option>
+          {% for entry in load_option_profile_entries %}
+          <option value="{{ entry.name }}" {% if selected_load_option_profile_name == entry.name %}selected{% endif %}>{{ entry.name }}</option>
+          {% endfor %}
+        </select>
       </label>
-      <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
-    </details>
-
-    <div class="form-actions">
-      <button class="button primary" type="submit">Run dumpSchemas</button>
+      <div class="field-actions-inline">
+        <button class="button secondary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
+      </div>
     </div>
-  </form>
-</section>
-{% else %}
-<section class="panel">
-  <h3>loadDump</h3>
-  <form method="post" class="form-grid">
-    <input type="hidden" name="operation" value="load-dump">
-
     <label>
-      Source PAR *
-      <select name="load_dump_par_id">
-        <option value="">Choose a read or read/write PAR</option>
-        {% for entry in load_pars %}
-        <option value="{{ entry.id }}" {% if form_state.load_dump_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
-        {% endfor %}
-      </select>
+      Profile Name
+      <input name="load_option_profile_edit_name" type="text" value="{{ load_option_profile_edit_name }}" placeholder="restore-fast">
     </label>
+    <p class="help-text full-span">Load profiles are reused by <code>loadDump</code> runs.</p>
+
     <label>
       Threads
       <input name="load_dump_threads" type="number" min="1" value="{{ form_state.load_dump_threads }}">
     </label>
+    {% if load_dump_ssh_enabled %}
+    <p class="help-text full-span">SSH-backed <code>loadDump</code> defaults to 1 thread. The background job keeps an app-managed SSH forward open for the whole <code>mysqlsh</code> run and retries connection-loss failures with the progress file. Parallel loads fall back to <code>threads=1</code>; single-threaded loads retry once with the same options. If disconnects continue, use Session Init SQL to raise session timeouts and/or add SSH keepalives through the profile SSH config file.</p>
+    {% endif %}
     <label>
       Background Threads
       <input name="load_dump_background_threads" type="number" min="1" value="{{ form_state.load_dump_background_threads }}">
@@ -654,7 +498,7 @@
       <summary>Session Initialization</summary>
       <label class="full-span">
         Session Init SQL
-        <textarea name="load_dump_session_init_sql" rows="5" class="textarea-input code-area" placeholder="SET SESSION sql_mode='STRICT_TRANS_TABLES';&#10;SET SESSION foreign_key_checks=0;">{{ form_state.load_dump_session_init_sql }}</textarea>
+        <textarea name="load_dump_session_init_sql" rows="5" class="textarea-input code-area" placeholder="SET SESSION sql_mode='STRICT_TRANS_TABLES';&#10;SET SESSION foreign_key_checks=0;&#10;SET SESSION net_read_timeout=600;&#10;SET SESSION net_write_timeout=600;">{{ form_state.load_dump_session_init_sql }}</textarea>
       </label>
     </details>
 
@@ -667,7 +511,225 @@
       <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
     </details>
 
-    <div class="form-actions">
+    <div class="form-actions full-span">
+      <button class="button secondary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
+      <button class="button secondary danger" type="submit" name="option_profile_action" value="delete" {% if not selected_load_option_profile_name %}disabled{% endif %}>Delete Profile</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+{% elif is_history_page %}
+<section class="panel">
+  <h3>History</h3>
+  <p class="help-text">Recent MySQL Shell jobs for the current MySQL username across dump and load operations. Each row shows the connection profile used for that run.</p>
+
+  {% if operation_history %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Submitted</th>
+          <th>Operation</th>
+          <th>Connection Profile</th>
+          <th>Status</th>
+          <th>Summary</th>
+          <th>Duration</th>
+          <th>Retries</th>
+          <th>Job ID</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in operation_history %}
+        <tr>
+          <td>{{ item.submitted_at_local or "-" }}</td>
+          <td>{{ item.operation_name or item.operation or "-" }}</td>
+          <td>
+            <div>{{ item.owner_profile_name or "-" }}</div>
+            {% if item.database %}
+            <div class="help-text">Database: {{ item.database }}</div>
+            {% endif %}
+          </td>
+          <td><span class="badge {{ item.status_badge_class }}">{{ item.status_label }}</span></td>
+          <td>
+            <div class="history-summary">{{ item.summary_text or "-" }}</div>
+            {% if item.error %}
+            <div class="history-error">{{ item.error }}</div>
+            {% endif %}
+          </td>
+          <td>{{ item.duration_text or "-" }}</td>
+          <td>{{ item.retry_count }}</td>
+          <td><a href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}"><code>{{ item.job_id[:12] }}</code></a></td>
+          <td>
+            <div class="job-action-row history-action-row">
+              <a class="button secondary" href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}">Open</a>
+              {% if item.can_cleanup %}
+              <form method="post" action="{{ url_for('mysqlsh_job_cleanup', job_id=item.job_id) }}" onsubmit="return window.confirm('Cleanup this job and remove its files?');">
+                <input type="hidden" name="page" value="history">
+                <button class="button secondary icon-button" type="submit" aria-label="Cleanup job {{ item.job_id }}" title="Cleanup">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M4 7h16" />
+                    <path d="M9 7V4h6v3" />
+                    <path d="M7 7l1 13h8l1-13" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
+              </form>
+              {% else %}
+              <span class="history-action-placeholder">-</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>No MySQL Shell jobs have been recorded for this MySQL user yet.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% elif shell_page == "dump-instance" %}
+<section class="panel">
+  <h3>dumpInstance</h3>
+  <p class="help-text">Select a saved dump option profile here. Detailed option editing lives in the top-level <code>Option Profiles</code> tab.</p>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="page" value="dump-instance">
+    <input type="hidden" name="operation" value="dump-instance">
+    <input type="hidden" name="option_profile_kind" value="dump">
+    <input type="hidden" name="load_option_profile_name" value="{{ selected_load_option_profile_name }}">
+
+    <div class="field-row">
+      <label>
+        Dump Option Profile
+        <select name="dump_option_profile_name" data-option-profile-select>
+          <option value="">Default dump options</option>
+          {% for entry in dump_option_profile_entries %}
+          <option value="{{ entry.name }}" {% if selected_dump_option_profile_name == entry.name %}selected{% endif %}>{{ entry.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-actions-inline">
+        <a class="button secondary" href="{{ url_for('shell_operations_page', page='option-profiles', option_profile_kind='dump', dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">Option Profiles</a>
+      </div>
+    </div>
+    <button type="submit" name="option_profile_action" value="apply" data-option-profile-apply hidden>Apply Profile</button>
+
+    <label>
+      Target PAR *
+      <select name="dump_instance_par_id">
+        <option value="">Choose a read/write PAR</option>
+        {% for entry in dump_pars %}
+        <option value="{{ entry.id }}" {% if form_state.dump_instance_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <div class="form-actions full-span">
+      <button class="button primary" type="submit">Run dumpInstance</button>
+    </div>
+  </form>
+</section>
+
+{% elif shell_page == "dump-schemas" %}
+<section class="panel">
+  <h3>dumpSchemas</h3>
+  <p class="help-text">Select a saved dump option profile here. Detailed option editing lives in the top-level <code>Option Profiles</code> tab.</p>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="page" value="dump-schemas">
+    <input type="hidden" name="operation" value="dump-schemas">
+    <input type="hidden" name="option_profile_kind" value="dump">
+    <input type="hidden" name="load_option_profile_name" value="{{ selected_load_option_profile_name }}">
+
+    <div class="field-row">
+      <label>
+        Dump Option Profile
+        <select name="dump_option_profile_name" data-option-profile-select>
+          <option value="">Default dump options</option>
+          {% for entry in dump_option_profile_entries %}
+          <option value="{{ entry.name }}" {% if selected_dump_option_profile_name == entry.name %}selected{% endif %}>{{ entry.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-actions-inline">
+        <a class="button secondary" href="{{ url_for('shell_operations_page', page='option-profiles', option_profile_kind='dump', dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">Option Profiles</a>
+      </div>
+    </div>
+    <button type="submit" name="option_profile_action" value="apply" data-option-profile-apply hidden>Apply Profile</button>
+
+    <label>
+      Target PAR *
+      <select name="dump_schemas_par_id">
+        <option value="">Choose a read/write PAR</option>
+        {% for entry in dump_pars %}
+        <option value="{{ entry.id }}" {% if form_state.dump_schemas_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="full-span">
+      Schemas *
+      <select class="schema-picker" name="schemas" multiple size="8">
+        {% for schema in user_schemas %}
+        <option value="{{ schema }}" {% if schema in selected_schemas %}selected{% endif %}>{{ schema }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if schema_error %}
+    <p class="help-text full-span">{{ schema_error }}</p>
+    {% endif %}
+
+    <div class="form-actions full-span">
+      <button class="button primary" type="submit">Run dumpSchemas</button>
+    </div>
+  </form>
+</section>
+
+{% elif shell_page == "load-dump" %}
+<section class="panel">
+  <h3>loadDump</h3>
+  <p class="help-text">Select a saved load option profile here. Detailed option editing lives in the top-level <code>Option Profiles</code> tab.</p>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="page" value="load-dump">
+    <input type="hidden" name="operation" value="load-dump">
+    <input type="hidden" name="option_profile_kind" value="load">
+    <input type="hidden" name="dump_option_profile_name" value="{{ selected_dump_option_profile_name }}">
+
+    <div class="field-row">
+      <label>
+        Load Option Profile
+        <select name="load_option_profile_name" data-option-profile-select>
+          <option value="">Default load options</option>
+          {% for entry in load_option_profile_entries %}
+          <option value="{{ entry.name }}" {% if selected_load_option_profile_name == entry.name %}selected{% endif %}>{{ entry.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-actions-inline">
+        <a class="button secondary" href="{{ url_for('shell_operations_page', page='option-profiles', option_profile_kind='load', dump_option_profile_name=selected_dump_option_profile_name or None, load_option_profile_name=selected_load_option_profile_name or None) }}">Option Profiles</a>
+      </div>
+    </div>
+    <button type="submit" name="option_profile_action" value="apply" data-option-profile-apply hidden>Apply Profile</button>
+
+    <label>
+      Source PAR *
+      <select name="load_dump_par_id">
+        <option value="">Choose a read or read/write PAR</option>
+        {% for entry in load_pars %}
+        <option value="{{ entry.id }}" {% if form_state.load_dump_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if load_dump_ssh_enabled %}
+    <p class="help-text full-span">SSH-backed <code>loadDump</code> keeps the app-managed tunnel open for the full <code>mysqlsh</code> run.</p>
+    {% endif %}
+
+    <div class="form-actions full-span">
       <button class="button primary" type="submit">Run loadDump</button>
     </div>
   </form>
@@ -675,19 +737,61 @@
 {% endif %}
 
 {% if operation_result %}
-<section class="panel">
+<section
+  class="panel"
+  data-mysqlsh-job-shell
+  data-job-id="{{ operation_result.job_id }}"
+  data-status-url="{{ url_for('mysqlsh_job_status_api', job_id=operation_result.job_id, page=shell_page) }}"
+>
   <h3>Execution Result</h3>
+  <div class="job-status-shell">
+    <div class="job-status-header">
+      <div class="job-status-copy">
+        <span class="badge {{ operation_result.status_badge_class }}" data-job-status-badge>{{ operation_result.status_label }}</span>
+        <p class="help-text" data-job-progress-label>{{ operation_result.progress_label }}</p>
+      </div>
+      <div class="job-action-row">
+        <form method="post" action="{{ url_for('mysqlsh_job_cancel', job_id=operation_result.job_id) }}" data-job-cancel-form {% if not operation_result.can_cancel %}hidden{% endif %}>
+          <input type="hidden" name="page" value="{{ shell_page }}">
+          <button class="button danger" type="submit">Cancel Job</button>
+        </form>
+        <form method="post" action="{{ url_for('mysqlsh_job_cleanup', job_id=operation_result.job_id) }}" data-job-cleanup-form onsubmit="return window.confirm('Cleanup this job and remove its files?');" {% if not operation_result.can_cleanup %}hidden{% endif %}>
+          <input type="hidden" name="page" value="{{ shell_page }}">
+          <button class="button secondary button-with-icon" type="submit" title="Cleanup">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7h16" />
+              <path d="M9 7V4h6v3" />
+              <path d="M7 7l1 13h8l1-13" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+            <span>Cleanup Files</span>
+          </button>
+        </form>
+      </div>
+    </div>
+    <div class="job-progress-track" aria-hidden="true">
+      <div
+        class="job-progress-fill{% if operation_result.progress_indeterminate %} indeterminate{% endif %}"
+        data-job-progress-fill
+        {% if operation_result.progress_percent is not none and not operation_result.progress_indeterminate %}
+        style="width: {{ operation_result.progress_percent }}%;"
+        {% endif %}
+      ></div>
+    </div>
+    <pre class="job-progress-info" data-job-progress-info>{{ operation_result.progress_info or "Waiting for progress output..." }}</pre>
+  </div>
   <div class="tab-shell" data-tab-shell data-default-tab="result-summary">
     <div class="tab-bar" role="tablist">
       <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-summary">Summary</button>
       <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-options">Options</button>
       <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-stdout">Stdout</button>
       <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-stderr">Stderr</button>
-      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-script">Script</button>
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-script">Python</button>
     </div>
 
     <section class="tab-panel" id="result-summary" role="tabpanel" data-tab-panel hidden>
-      <dl class="detail-list compact">
+      <dl class="detail-list compact" data-job-summary>
         {% for label, value in operation_result.summary_rows %}
         <div>
           <dt>{{ label }}</dt>
@@ -700,31 +804,174 @@
         </div>
         <div>
           <dt>Return Code</dt>
-          <dd>{{ operation_result.returncode }}</dd>
+          <dd data-job-return-code>{{ operation_result.returncode if operation_result.returncode is not none else "-" }}</dd>
         </div>
         <div>
           <dt>Duration</dt>
-          <dd>{{ operation_result.duration_seconds }} seconds</dd>
+          <dd data-job-duration>{{ operation_result.duration_text or "-" }}</dd>
         </div>
       </dl>
     </section>
 
     <section class="tab-panel" id="result-options" role="tabpanel" data-tab-panel hidden>
-      <pre class="code-block">{{ operation_result.options_json }}</pre>
+      <pre class="code-block" data-job-options>{{ operation_result.options_json }}</pre>
     </section>
 
     <section class="tab-panel" id="result-stdout" role="tabpanel" data-tab-panel hidden>
-      <pre class="code-block">{{ operation_result.stdout or "No stdout output." }}</pre>
+      <pre class="code-block" data-job-stdout>{{ operation_result.stdout or "No stdout output." }}</pre>
     </section>
 
     <section class="tab-panel" id="result-stderr" role="tabpanel" data-tab-panel hidden>
-      <pre class="code-block">{{ operation_result.stderr or "No stderr output." }}</pre>
+      <pre class="code-block" data-job-stderr>{{ operation_result.stderr or "No stderr output." }}</pre>
     </section>
 
     <section class="tab-panel" id="result-script" role="tabpanel" data-tab-panel hidden>
-      <pre class="code-block">{{ operation_result.script_text }}</pre>
+      <pre class="code-block" data-job-script>{{ operation_result.script_text }}</pre>
     </section>
   </div>
 </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const profileSelects = Array.from(document.querySelectorAll("[data-option-profile-select]"));
+    profileSelects.forEach((select) => {
+      select.addEventListener("change", () => {
+        const form = select.closest("form");
+        const applyButton = form ? form.querySelector("[data-option-profile-apply]") : null;
+        if (!form || !applyButton) {
+          return;
+        }
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit(applyButton);
+        } else {
+          applyButton.click();
+        }
+      });
+    });
+
+    const kindRadios = Array.from(document.querySelectorAll("[data-option-profile-kind-radio]"));
+    kindRadios.forEach((radio) => {
+      radio.addEventListener("change", () => {
+        const form = radio.closest("form");
+        if (!form || !radio.checked) {
+          return;
+        }
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      });
+    });
+  })();
+</script>
+{% if operation_result %}
+<script>
+  (() => {
+    const shell = document.querySelector("[data-mysqlsh-job-shell]");
+    if (!shell) {
+      return;
+    }
+
+    const statusUrl = shell.dataset.statusUrl;
+    const summaryRoot = shell.querySelector("[data-job-summary]");
+    const statusBadge = shell.querySelector("[data-job-status-badge]");
+    const progressLabel = shell.querySelector("[data-job-progress-label]");
+    const progressInfo = shell.querySelector("[data-job-progress-info]");
+    const progressFill = shell.querySelector("[data-job-progress-fill]");
+    const optionsNode = shell.querySelector("[data-job-options]");
+    const stdoutNode = shell.querySelector("[data-job-stdout]");
+    const stderrNode = shell.querySelector("[data-job-stderr]");
+    const scriptNode = shell.querySelector("[data-job-script]");
+    const cancelForm = shell.querySelector("[data-job-cancel-form]");
+    const cleanupForm = shell.querySelector("[data-job-cleanup-form]");
+
+    const appendSummaryRow = (label, value, options = {}) => {
+      const row = document.createElement("div");
+      const term = document.createElement("dt");
+      const detail = document.createElement("dd");
+
+      term.textContent = label;
+      if (options.dataAttribute) {
+        detail.setAttribute(options.dataAttribute, "");
+      }
+
+      if (options.asCode) {
+        const code = document.createElement("code");
+        code.textContent = value ?? "";
+        detail.appendChild(code);
+      } else {
+        detail.textContent = value ?? "";
+      }
+
+      row.append(term, detail);
+      summaryRoot.appendChild(row);
+    };
+
+    const renderSummary = (snapshot) => {
+      const rows = Array.isArray(snapshot.summary_rows) ? snapshot.summary_rows : [];
+      summaryRoot.replaceChildren();
+      rows.forEach(([label, value]) => appendSummaryRow(label, value));
+      appendSummaryRow("Command", snapshot.command_preview ?? "", { asCode: true });
+      appendSummaryRow("Return Code", snapshot.returncode ?? "-", { dataAttribute: "data-job-return-code" });
+      appendSummaryRow("Duration", snapshot.duration_text || "-", { dataAttribute: "data-job-duration" });
+    };
+
+    const renderSnapshot = (snapshot) => {
+      renderSummary(snapshot);
+      statusBadge.textContent = snapshot.status_label;
+      statusBadge.className = `badge ${snapshot.status_badge_class || "muted"}`;
+      progressLabel.textContent = snapshot.progress_label || "";
+      progressInfo.textContent = snapshot.progress_info || "Waiting for progress output...";
+
+      if (snapshot.progress_indeterminate) {
+        progressFill.classList.add("indeterminate");
+        progressFill.style.width = "";
+      } else {
+        progressFill.classList.remove("indeterminate");
+        progressFill.style.width = `${snapshot.progress_percent ?? 0}%`;
+      }
+
+      optionsNode.textContent = snapshot.options_json || "";
+      stdoutNode.textContent = snapshot.stdout || "No stdout output.";
+      stderrNode.textContent = snapshot.stderr || "No stderr output.";
+      scriptNode.textContent = snapshot.script_text || "";
+
+      if (cancelForm) {
+        cancelForm.hidden = !snapshot.can_cancel;
+      }
+      if (cleanupForm) {
+        cleanupForm.hidden = !snapshot.can_cleanup;
+      }
+    };
+
+    let timerId = null;
+    const poll = async () => {
+      try {
+        const response = await fetch(statusUrl, { headers: { Accept: "application/json" } });
+        if (!response.ok) {
+          return;
+        }
+        const snapshot = await response.json();
+        renderSnapshot(snapshot);
+        if (snapshot.is_active) {
+          timerId = window.setTimeout(poll, 2000);
+        }
+      } catch (_error) {
+        timerId = window.setTimeout(poll, 4000);
+      }
+    };
+
+    timerId = window.setTimeout(poll, 2000);
+    window.addEventListener("beforeunload", () => {
+      if (timerId) {
+        window.clearTimeout(timerId);
+      }
+    });
+  })();
+</script>
 {% endif %}
 {% endblock %}

@@ -24,6 +24,7 @@ def normalize_profile(payload):
         "ssh_port": _normalize_int(payload.get("ssh_port"), DEFAULT_PROFILE["ssh_port"], minimum=1),
         "ssh_user": str(payload.get("ssh_user", "")).strip(),
         "ssh_key_path": str(payload.get("ssh_key_path", "")).strip(),
+        "ssh_config_file": str(payload.get("ssh_config_file", "")).strip(),
     }
 
 

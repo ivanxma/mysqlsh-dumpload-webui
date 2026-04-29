@@ -65,26 +65,31 @@
         Default Database
         <input name="database" type="text" value="{{ editing_profile.database }}">
       </label>
-      <label class="checkbox-field">
-        <input name="ssh_enabled" type="checkbox" value="1" {% if editing_profile.ssh_enabled %}checked{% endif %}>
+      <label class="checkbox-field full-span">
+        <input name="ssh_enabled" id="profile_ssh_enabled" type="checkbox" value="1" {% if editing_profile.ssh_enabled %}checked{% endif %}>
         <span>Use SSH Tunnel</span>
       </label>
-      <label>
+      <label class="ssh-config-field" data-ssh-config-field>
         SSH Jump Host
-        <input name="ssh_host" type="text" value="{{ editing_profile.ssh_host }}">
+        <input name="ssh_host" id="profile_ssh_host" type="text" value="{{ editing_profile.ssh_host }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
-      <label>
+      <label class="ssh-config-field" data-ssh-config-field>
         SSH Port
-        <input name="ssh_port" type="number" min="1" value="{{ editing_profile.ssh_port }}">
+        <input name="ssh_port" id="profile_ssh_port" type="number" min="1" value="{{ editing_profile.ssh_port }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
-      <label>
+      <label class="ssh-config-field" data-ssh-config-field>
         SSH User
-        <input name="ssh_user" type="text" value="{{ editing_profile.ssh_user }}">
+        <input name="ssh_user" id="profile_ssh_user" type="text" value="{{ editing_profile.ssh_user }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
-      <label class="full-span">
+      <label class="full-span ssh-config-field" data-ssh-config-field>
         Private Key Path
-        <input name="ssh_key_path" type="text" value="{{ editing_profile.ssh_key_path }}">
+        <input name="ssh_key_path" id="profile_ssh_key_path" type="text" value="{{ editing_profile.ssh_key_path }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
+      <label class="full-span ssh-config-field" data-ssh-config-field>
+        MySQL Shell SSH Config File
+        <input name="ssh_config_file" id="profile_ssh_config_file" type="text" value="{{ editing_profile.ssh_config_file }}" placeholder="~/.ssh/config" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
+      </label>
+      <p class="help-text full-span">Optional. Used only by MySQL Shell jobs, which is useful for SSH keepalive settings on long `loadDump` runs.</p>
       <div class="form-actions">
         <button class="button primary" type="submit" name="profile_action" value="save">Save Profile</button>
         <button class="button secondary danger" type="submit" name="profile_action" value="delete" {% if not editing_profile.name %}disabled{% endif %}>Delete</button>
@@ -92,4 +97,37 @@
     </form>
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const sshEnabled = document.getElementById("profile_ssh_enabled");
+    if (!sshEnabled) {
+      return;
+    }
+
+    const sshFields = [
+      document.getElementById("profile_ssh_host"),
+      document.getElementById("profile_ssh_port"),
+      document.getElementById("profile_ssh_user"),
+      document.getElementById("profile_ssh_key_path"),
+      document.getElementById("profile_ssh_config_file")
+    ].filter(Boolean);
+    const sshLabels = Array.from(document.querySelectorAll("[data-ssh-config-field]"));
+
+    const syncSshFields = () => {
+      const enabled = !!sshEnabled.checked;
+      sshFields.forEach((field) => {
+        field.disabled = !enabled;
+      });
+      sshLabels.forEach((label) => {
+        label.classList.toggle("is-disabled", !enabled);
+      });
+    };
+
+    sshEnabled.addEventListener("change", syncSshFields);
+    syncSshFields();
+  })();
+</script>
 {% endblock %}

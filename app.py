@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import pymysql
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 from modules.config import (
     APP_TITLE,
@@ -19,13 +19,28 @@ from modules.config import (
 )
 from modules.mysql_connection import fetch_accessible_schemas, fetch_mysql_overview, test_mysql_connection
 from modules.mysqlsh_runner import (
-    build_dump_instance_script,
-    build_dump_schemas_script,
-    build_load_dump_script,
+    build_dump_instance_request,
+    build_dump_schemas_request,
+    build_load_dump_request,
     default_progress_file,
     ensure_runtime_dirs,
-    execute_mysqlsh_script,
     get_mysqlsh_status,
+    normalize_progress_file_value,
+)
+from modules.mysqlsh_jobs import (
+    build_mysqlsh_job_snapshot,
+    cancel_mysqlsh_job,
+    cleanup_mysqlsh_job,
+    ensure_job_store,
+    list_mysqlsh_job_history,
+    submit_mysqlsh_job,
+)
+from modules.option_profiles import (
+    delete_option_profile,
+    ensure_option_profile_store,
+    get_option_profile,
+    load_option_profiles,
+    save_option_profile,
 )
 from modules.object_storage import (
     create_managed_folder,
@@ -88,10 +103,35 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = MYSQL_SHELL_WEB_SESSION_COOKIE_SAMESITE
 app.config["SESSION_COOKIE_SECURE"] = MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE
 
+MYSQL_PAGE_HEALTHCHECK_ENDPOINTS = {
+    "overview_page",
+    "profile_page",
+    "object_storage_settings_page",
+    "par_manager_page",
+    "folder_manager_page",
+    "shell_operations_page",
+}
+
 
 @app.before_request
 def ensure_mysql_shell_web_session_scope():
     ensure_session_scope()
+
+
+@app.before_request
+def ensure_mysql_connection_healthcheck():
+    if not is_logged_in():
+        return None
+
+    current_endpoint = str(request.endpoint or "").strip()
+    if current_endpoint not in MYSQL_PAGE_HEALTHCHECK_ENDPOINTS:
+        return None
+
+    try:
+        test_mysql_connection(get_session_profile(), get_session_credentials())
+    except Exception as error:  # pragma: no cover - depends on runtime services
+        return _redirect_to_login_for_mysql_unavailable(error)
+    return None
 
 
 def _normalize_checkbox(value):
@@ -101,7 +141,38 @@ def _normalize_checkbox(value):
 def _normalize_operation(value):
     normalized = str(value or "").strip().lower()
     allowed = {name for name, _label in SHELL_OPERATION_OPTIONS}
+    if normalized == "option-profiles":
+        return normalized
     return normalized if normalized in allowed else "dump-instance"
+
+
+def _normalize_shell_operations_page(page_value, legacy_operation_value="", legacy_view_value=""):
+    normalized = str(page_value or "").strip().lower()
+    legacy_operation = str(legacy_operation_value or "").strip().lower()
+
+    if normalized == "run":
+        if legacy_operation in {"dump-instance", "dump-schemas", "load-dump"}:
+            return legacy_operation
+        return "dump-instance"
+
+    if normalized in {"dump-instance", "dump-schemas", "load-dump", "history", "option-profiles"}:
+        return normalized
+
+    if legacy_operation in {"dump-instance", "dump-schemas", "load-dump", "history", "option-profiles"}:
+        return legacy_operation
+
+    legacy_view = str(legacy_view_value or "").strip().lower()
+    if legacy_view == "history":
+        return "history"
+
+    return "dump-instance"
+
+
+def _normalize_option_profile_kind(value, default="dump"):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"dump", "load"}:
+        return normalized
+    return default
 
 
 def _normalize_threads(value, default=4):
@@ -148,6 +219,295 @@ def _request_checkbox(name, default=False):
 def _request_multiselect(name, allowed_values):
     values = request.form.getlist(name) if request.method == "POST" else request.args.getlist(name)
     return normalize_multiselect(values, allowed_values)
+
+
+DUMP_OPTION_PROFILE_SUFFIXES = [
+    "threads",
+    "max_rate",
+    "default_character_set",
+    "compression",
+    "dialect",
+    "bytes_per_chunk",
+    "target_version",
+    "show_progress",
+    "dry_run",
+    "consistent",
+    "skip_consistency_checks",
+    "skip_upgrade_checks",
+    "checksum",
+    "chunking",
+    "tz_utc",
+    "ddl_only",
+    "data_only",
+    "events",
+    "routines",
+    "triggers",
+    "libraries",
+    "ocimds",
+    "compatibility",
+    "include_tables",
+    "exclude_tables",
+    "include_events",
+    "exclude_events",
+    "include_routines",
+    "exclude_routines",
+    "include_triggers",
+    "exclude_triggers",
+    "include_libraries",
+    "exclude_libraries",
+    "advanced_json",
+]
+
+DUMP_INSTANCE_ONLY_OPTION_PROFILE_SUFFIXES = [
+    "users",
+    "include_schemas",
+    "exclude_schemas",
+    "include_users",
+    "exclude_users",
+]
+
+LOAD_OPTION_PROFILE_SUFFIXES = [
+    "threads",
+    "background_threads",
+    "wait_dump_timeout",
+    "progress_file",
+    "schema",
+    "character_set",
+    "max_bytes_per_transaction",
+    "show_progress",
+    "dry_run",
+    "reset_progress",
+    "skip_binlog",
+    "ignore_version",
+    "drop_existing_objects",
+    "ignore_existing_objects",
+    "checksum",
+    "show_metadata",
+    "create_invisible_pks",
+    "load_ddl",
+    "load_data",
+    "load_users",
+    "load_indexes",
+    "analyze_tables",
+    "defer_table_indexes",
+    "handle_grant_errors",
+    "update_gtid_set",
+    "session_init_sql",
+    "include_schemas",
+    "exclude_schemas",
+    "include_tables",
+    "exclude_tables",
+    "include_users",
+    "exclude_users",
+    "include_events",
+    "exclude_events",
+    "include_routines",
+    "exclude_routines",
+    "include_triggers",
+    "exclude_triggers",
+    "include_libraries",
+    "exclude_libraries",
+    "advanced_json",
+]
+
+DUMP_OPTION_PROFILE_BOOLEAN_SUFFIXES = {
+    "show_progress",
+    "dry_run",
+    "consistent",
+    "skip_consistency_checks",
+    "skip_upgrade_checks",
+    "checksum",
+    "chunking",
+    "tz_utc",
+    "ddl_only",
+    "data_only",
+    "events",
+    "routines",
+    "triggers",
+    "libraries",
+    "ocimds",
+    "users",
+}
+
+DUMP_OPTION_PROFILE_LIST_SUFFIXES = {
+    "compatibility",
+}
+
+DUMP_OPTION_PROFILE_MULTILINE_SUFFIXES = {
+    "include_schemas",
+    "exclude_schemas",
+    "include_tables",
+    "exclude_tables",
+    "include_users",
+    "exclude_users",
+    "include_events",
+    "exclude_events",
+    "include_routines",
+    "exclude_routines",
+    "include_triggers",
+    "exclude_triggers",
+    "include_libraries",
+    "exclude_libraries",
+}
+
+LOAD_OPTION_PROFILE_BOOLEAN_SUFFIXES = {
+    "show_progress",
+    "dry_run",
+    "reset_progress",
+    "skip_binlog",
+    "ignore_version",
+    "drop_existing_objects",
+    "ignore_existing_objects",
+    "checksum",
+    "show_metadata",
+    "create_invisible_pks",
+    "load_ddl",
+    "load_data",
+    "load_users",
+    "load_indexes",
+}
+
+LOAD_OPTION_PROFILE_MULTILINE_SUFFIXES = {
+    "session_init_sql",
+    "include_schemas",
+    "exclude_schemas",
+    "include_tables",
+    "exclude_tables",
+    "include_users",
+    "exclude_users",
+    "include_events",
+    "exclude_events",
+    "include_routines",
+    "exclude_routines",
+    "include_triggers",
+    "exclude_triggers",
+    "include_libraries",
+    "exclude_libraries",
+}
+
+OPTION_PROFILE_JSON_TEXT_SUFFIXES = {
+    "advanced_json",
+}
+
+
+def _copy_state_value(value):
+    if isinstance(value, list):
+        return list(value)
+    return value
+
+
+def _option_profile_allowed_suffixes(kind):
+    normalized_kind = _normalize_option_profile_kind(kind)
+    if normalized_kind == "load":
+        return list(LOAD_OPTION_PROFILE_SUFFIXES)
+    return _dump_option_profile_suffixes(include_users=True)
+
+
+def _format_option_profile_editor_json(profile_values):
+    return json.dumps(profile_values or {}, indent=2, sort_keys=True)
+
+
+def _coerce_multiline_editor_value(value):
+    if value in ("", None):
+        return ""
+    if isinstance(value, list):
+        return "\n".join(str(item or "").strip() for item in value if str(item or "").strip())
+    return str(value)
+
+
+def _coerce_option_profile_editor_value(kind, suffix, value):
+    normalized_kind = _normalize_option_profile_kind(kind)
+    if normalized_kind == "load":
+        boolean_suffixes = LOAD_OPTION_PROFILE_BOOLEAN_SUFFIXES
+        list_suffixes = set()
+        multiline_suffixes = LOAD_OPTION_PROFILE_MULTILINE_SUFFIXES
+    else:
+        boolean_suffixes = DUMP_OPTION_PROFILE_BOOLEAN_SUFFIXES
+        list_suffixes = DUMP_OPTION_PROFILE_LIST_SUFFIXES
+        multiline_suffixes = DUMP_OPTION_PROFILE_MULTILINE_SUFFIXES
+
+    if suffix in boolean_suffixes:
+        return _normalize_checkbox(value)
+    if suffix in list_suffixes:
+        if isinstance(value, list):
+            return list(value)
+        return parse_string_list(value)
+    if suffix in OPTION_PROFILE_JSON_TEXT_SUFFIXES:
+        if value in ("", None):
+            return ""
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, indent=2, sort_keys=True)
+        return str(value)
+    if suffix in multiline_suffixes:
+        return _coerce_multiline_editor_value(value)
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float)):
+        return value
+    raise ValueError(f"Unsupported value type for option profile key `{suffix}`.")
+
+
+def _parse_option_profile_editor_json(raw_text, kind):
+    normalized_text = str(raw_text or "").strip()
+    if not normalized_text:
+        return {}
+    try:
+        payload = json.loads(normalized_text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Option profile JSON is invalid: {error.msg}.") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Option profile JSON must be a JSON object.")
+
+    allowed_suffixes = set(_option_profile_allowed_suffixes(kind))
+    normalized_values = {}
+    for raw_key, raw_value in payload.items():
+        suffix = str(raw_key or "").strip()
+        if not suffix:
+            continue
+        if suffix not in allowed_suffixes:
+            raise ValueError(f"Unsupported option profile key `{suffix}` for {kind} profiles.")
+        normalized_values[suffix] = _coerce_option_profile_editor_value(kind, suffix, raw_value)
+    return normalized_values
+
+
+def _dump_option_profile_suffixes(include_users=False):
+    if include_users:
+        return DUMP_OPTION_PROFILE_SUFFIXES + DUMP_INSTANCE_ONLY_OPTION_PROFILE_SUFFIXES
+    return list(DUMP_OPTION_PROFILE_SUFFIXES)
+
+
+def _extract_dump_option_profile_values(form_state, prefix, *, include_users=False):
+    profile_values = {}
+    for suffix in _dump_option_profile_suffixes(include_users):
+        key = f"{prefix}_{suffix}"
+        if key in form_state:
+            profile_values[suffix] = _copy_state_value(form_state[key])
+    return profile_values
+
+
+def _apply_dump_option_profile_values(form_state, profile_values, prefix, *, include_users=False):
+    for suffix in _dump_option_profile_suffixes(include_users):
+        key = f"{prefix}_{suffix}"
+        if key not in form_state or suffix not in profile_values:
+            continue
+        form_state[key] = _copy_state_value(profile_values[suffix])
+
+
+def _extract_load_option_profile_values(form_state):
+    profile_values = {}
+    for suffix in LOAD_OPTION_PROFILE_SUFFIXES:
+        key = f"load_dump_{suffix}"
+        if key in form_state:
+            profile_values[suffix] = _copy_state_value(form_state[key])
+    return profile_values
+
+
+def _apply_load_option_profile_values(form_state, profile_values):
+    for suffix in LOAD_OPTION_PROFILE_SUFFIXES:
+        key = f"load_dump_{suffix}"
+        if key not in form_state or suffix not in profile_values:
+            continue
+        form_state[key] = _copy_state_value(profile_values[suffix])
 
 
 def _build_dump_form_state(prefix, *, include_users=False):
@@ -362,7 +722,7 @@ def _build_load_dump_options(form_state):
     if form_state["load_dump_drop_existing_objects"] and form_state["load_dump_ignore_existing_objects"]:
         raise ValueError("`dropExistingObjects` and `ignoreExistingObjects` cannot both be enabled.")
 
-    progress_file = form_state["load_dump_progress_file"]
+    progress_file = normalize_progress_file_value(form_state["load_dump_progress_file"])
     if not progress_file:
         raise ValueError("A progress file is required for loadDump.")
 
@@ -490,6 +850,7 @@ def login():
                 "ssh_port": request.form.get("ssh_port", ""),
                 "ssh_user": request.form.get("ssh_user", ""),
                 "ssh_key_path": request.form.get("ssh_key_path", ""),
+                "ssh_config_file": request.form.get("ssh_config_file", ""),
             }
         )
         username = str(request.form.get("username", "")).strip()
@@ -738,7 +1099,16 @@ def shell_operations_page():
     config = load_object_storage_config()
     profile = get_session_profile()
     credentials = get_session_credentials()
+    requested_job_id = str(request.args.get("job_id", "")).strip()
+    operation_names = {name for name, _label in SHELL_OPERATION_OPTIONS}
+    shell_page = _normalize_shell_operations_page(
+        request.values.get("page"),
+        request.values.get("operation"),
+        request.values.get("view"),
+    )
     operation = _normalize_operation(request.values.get("operation", "dump-instance"))
+    if shell_page in operation_names:
+        operation = shell_page
 
     dump_pars = list_active_pars_for_purpose(config, "dump")
     load_pars = list_active_pars_for_purpose(config, "load")
@@ -753,6 +1123,29 @@ def shell_operations_page():
         schema_error = str(error)
 
     selected_schemas = request.form.getlist("schemas") if request.method == "POST" else request.args.getlist("schemas")
+    selected_dump_option_profile_name = _request_text("dump_option_profile_name")
+    selected_load_option_profile_name = _request_text("load_option_profile_name")
+    dump_option_profile_edit_name = _request_text(
+        "dump_option_profile_edit_name", selected_dump_option_profile_name
+    )
+    load_option_profile_edit_name = _request_text(
+        "load_option_profile_edit_name", selected_load_option_profile_name
+    )
+    option_profile_kind = _normalize_option_profile_kind(
+        request.values.get("option_profile_kind"),
+        default="load" if operation == "load-dump" else "dump",
+    )
+    dump_option_profile_json = _request_text("dump_option_profile_json")
+    load_option_profile_json = _request_text("load_option_profile_json")
+    dump_option_profile_entries = load_option_profiles("dump")
+    load_option_profile_entries = load_option_profiles("load")
+    selected_dump_option_profile = (
+        get_option_profile("dump", selected_dump_option_profile_name) if selected_dump_option_profile_name else None
+    )
+    selected_load_option_profile = (
+        get_option_profile("load", selected_load_option_profile_name) if selected_load_option_profile_name else None
+    )
+    option_profile_action = str(request.form.get("option_profile_action", "")).strip().lower() if request.method == "POST" else ""
 
     load_progress_default = _request_text("load_dump_progress_file")
     if not load_progress_default and load_pars:
@@ -762,96 +1155,321 @@ def shell_operations_page():
     form_state.update(_build_dump_form_state("dump_instance", include_users=True))
     form_state.update(_build_dump_form_state("dump_schemas"))
     form_state.update(_build_load_dump_form_state(load_progress_default))
+    if profile.get("ssh_enabled") and request.values.get("load_dump_threads") is None:
+        form_state["load_dump_threads"] = "1"
 
     operation_result = None
 
-    if request.method == "POST":
-        try:
-            if operation == "dump-instance":
-                par_entry = dump_par_lookup.get(form_state["dump_instance_par_id"])
-                if par_entry is None:
-                    raise ValueError("Choose an active read/write PAR for dumpInstance.")
-                dump_options = _build_dump_options(form_state, "dump_instance", include_users=True)
-                script_text = build_dump_instance_script(par_entry["par_url"], dump_options)
-                operation_result = execute_mysqlsh_script(
-                    profile,
-                    credentials,
-                    script_text,
-                    database=profile.get("database", ""),
-                    operation_name="dumpInstance",
-                )
-                operation_result["options_json"] = json.dumps(dump_options, indent=2, sort_keys=True)
-                operation_result["summary_rows"] = [
-                    ("Operation", "util.dumpInstance"),
-                    ("Target PAR", par_entry["name"]),
-                    ("Output URL", par_entry["par_url"]),
-                    ("Threads", str(dump_options["threads"])),
-                    ("Option Count", str(len(dump_options))),
-                ]
-            elif operation == "dump-schemas":
-                par_entry = dump_par_lookup.get(form_state["dump_schemas_par_id"])
-                if par_entry is None:
-                    raise ValueError("Choose an active read/write PAR for dumpSchemas.")
-                if not selected_schemas:
-                    raise ValueError("Select at least one schema for dumpSchemas.")
-                dump_options = _build_dump_options(form_state, "dump_schemas")
-                script_text = build_dump_schemas_script(selected_schemas, par_entry["par_url"], dump_options)
-                operation_result = execute_mysqlsh_script(
-                    profile,
-                    credentials,
-                    script_text,
-                    database=profile.get("database", ""),
-                    operation_name="dumpSchemas",
-                )
-                operation_result["options_json"] = json.dumps(dump_options, indent=2, sort_keys=True)
-                operation_result["summary_rows"] = [
-                    ("Operation", "util.dumpSchemas"),
-                    ("Schemas", ", ".join(selected_schemas)),
-                    ("Target PAR", par_entry["name"]),
-                    ("Output URL", par_entry["par_url"]),
-                    ("Threads", str(dump_options["threads"])),
-                    ("Option Count", str(len(dump_options))),
-                ]
-            else:
-                par_entry = load_par_lookup.get(form_state["load_dump_par_id"])
-                if par_entry is None:
-                    raise ValueError("Choose an active read or read/write PAR for loadDump.")
-                progress_file = form_state["load_dump_progress_file"] or default_progress_file(
-                    par_entry["id"], "load-dump"
-                )
-                form_state["load_dump_progress_file"] = progress_file
-                load_options = _build_load_dump_options(form_state)
-                script_text = build_load_dump_script(par_entry["par_url"], load_options)
-                operation_result = execute_mysqlsh_script(
-                    profile,
-                    credentials,
-                    script_text,
-                    database=profile.get("database", ""),
-                    operation_name="loadDump",
-                )
-                operation_result["options_json"] = json.dumps(load_options, indent=2, sort_keys=True)
-                operation_result["summary_rows"] = [
-                    ("Operation", "util.loadDump"),
-                    ("Source PAR", par_entry["name"]),
-                    ("Input URL", par_entry["par_url"]),
-                    ("Progress File", progress_file),
-                    ("Threads", str(load_options["threads"])),
-                    ("Reset Progress", "Yes" if load_options["resetProgress"] else "No"),
-                    ("Option Count", str(len(load_options))),
-                ]
+    if requested_job_id:
+        job_access_profile_name = None if shell_page == "history" else session.get("profile_name", "")
+        operation_result = build_mysqlsh_job_snapshot(
+            requested_job_id,
+            owner_username=session.get("mysql_username", ""),
+            owner_profile_name=job_access_profile_name,
+        )
+        if operation_result is None:
+            flash("Requested MySQL Shell job was not found.", "error")
+        else:
+            operation = operation_result.get("operation", operation) or operation
+            if shell_page in operation_names:
+                shell_page = operation
+            saved_form_state = operation_result.get("form_state") or {}
+            for key, value in saved_form_state.items():
+                if key in form_state and key not in request.args:
+                    form_state[key] = value
+            if not selected_schemas:
+                selected_schemas = list(operation_result.get("selected_schemas") or [])
 
-            if operation_result["succeeded"]:
-                flash(f"MySQL Shell {operation_result['operation_name']} completed.", "success")
-            else:
-                flash(f"MySQL Shell {operation_result['operation_name']} failed.", "error")
-        except Exception as error:  # pragma: no cover - depends on runtime services
-            flash(str(error), "error")
+    if not requested_job_id and (request.method == "GET" or (request.method == "POST" and not option_profile_action)):
+        if selected_dump_option_profile is not None:
+            _apply_dump_option_profile_values(
+                form_state,
+                selected_dump_option_profile["values"],
+                "dump_instance",
+                include_users=True,
+            )
+            _apply_dump_option_profile_values(form_state, selected_dump_option_profile["values"], "dump_schemas")
+            dump_option_profile_edit_name = selected_dump_option_profile["name"]
+        if selected_load_option_profile is not None:
+            _apply_load_option_profile_values(form_state, selected_load_option_profile["values"])
+            load_option_profile_edit_name = selected_load_option_profile["name"]
+
+    form_state["load_dump_progress_file"] = normalize_progress_file_value(form_state["load_dump_progress_file"])
+
+    if request.method == "POST":
+        if option_profile_action:
+            option_profile_kind = _normalize_option_profile_kind(
+                request.form.get("option_profile_kind"),
+                default=option_profile_kind,
+            )
+            try:
+                if option_profile_kind == "load":
+                    if option_profile_action == "apply":
+                        if not selected_load_option_profile_name:
+                            load_option_profile_edit_name = ""
+                            selected_load_option_profile = None
+                        else:
+                            selected_load_option_profile = get_option_profile("load", selected_load_option_profile_name)
+                            if selected_load_option_profile is None:
+                                raise ValueError("Selected load option profile was not found.")
+                            _apply_load_option_profile_values(form_state, selected_load_option_profile["values"])
+                            load_option_profile_edit_name = selected_load_option_profile["name"]
+                            load_option_profile_json = _format_option_profile_editor_json(
+                                selected_load_option_profile["values"]
+                            )
+                            flash(f"Applied load option profile `{selected_load_option_profile['name']}`.", "success")
+                    elif option_profile_action == "save":
+                        target_profile_name = (load_option_profile_edit_name or selected_load_option_profile_name).strip()
+                        if not target_profile_name:
+                            raise ValueError("Enter a profile name to save the load options.")
+                        if request.form.get("load_option_profile_json", "").strip():
+                            load_profile_values = _parse_option_profile_editor_json(load_option_profile_json, "load")
+                        else:
+                            load_profile_values = _extract_load_option_profile_values(form_state)
+                        selected_load_option_profile = save_option_profile("load", target_profile_name, load_profile_values)
+                        _apply_load_option_profile_values(form_state, selected_load_option_profile["values"])
+                        selected_load_option_profile_name = target_profile_name
+                        load_option_profile_edit_name = target_profile_name
+                        load_option_profile_json = _format_option_profile_editor_json(
+                            selected_load_option_profile["values"]
+                        )
+                        load_option_profile_entries = load_option_profiles("load")
+                        flash(f"Saved load option profile `{target_profile_name}`.", "success")
+                    elif option_profile_action == "delete":
+                        if not selected_load_option_profile_name:
+                            raise ValueError("Select a load option profile to delete.")
+                        if not delete_option_profile("load", selected_load_option_profile_name):
+                            raise ValueError("Selected load option profile was not found.")
+                        flash(f"Deleted load option profile `{selected_load_option_profile_name}`.", "success")
+                        if load_option_profile_edit_name == selected_load_option_profile_name:
+                            load_option_profile_edit_name = ""
+                        selected_load_option_profile_name = ""
+                        selected_load_option_profile = None
+                        load_option_profile_entries = load_option_profiles("load")
+                    else:
+                        raise ValueError("Unsupported load option profile action.")
+                else:
+                    if option_profile_action == "apply":
+                        if not selected_dump_option_profile_name:
+                            dump_option_profile_edit_name = ""
+                            selected_dump_option_profile = None
+                        else:
+                            selected_dump_option_profile = get_option_profile("dump", selected_dump_option_profile_name)
+                            if selected_dump_option_profile is None:
+                                raise ValueError("Selected dump option profile was not found.")
+                            _apply_dump_option_profile_values(
+                                form_state,
+                                selected_dump_option_profile["values"],
+                                "dump_instance",
+                                include_users=True,
+                            )
+                            _apply_dump_option_profile_values(
+                                form_state,
+                                selected_dump_option_profile["values"],
+                                "dump_schemas",
+                            )
+                            dump_option_profile_edit_name = selected_dump_option_profile["name"]
+                            dump_option_profile_json = _format_option_profile_editor_json(
+                                selected_dump_option_profile["values"]
+                            )
+                            flash(f"Applied dump option profile `{selected_dump_option_profile['name']}`.", "success")
+                    elif option_profile_action == "save":
+                        target_profile_name = (dump_option_profile_edit_name or selected_dump_option_profile_name).strip()
+                        if not target_profile_name:
+                            raise ValueError("Enter a profile name to save the dump options.")
+                        dump_profile_prefix = "dump_instance" if operation in {"dump-instance", "option-profiles"} else "dump_schemas"
+                        dump_profile_include_users = operation in {"dump-instance", "option-profiles"}
+                        if request.form.get("dump_option_profile_json", "").strip():
+                            dump_profile_values = _parse_option_profile_editor_json(dump_option_profile_json, "dump")
+                        else:
+                            dump_profile_values = _extract_dump_option_profile_values(
+                                form_state,
+                                dump_profile_prefix,
+                                include_users=dump_profile_include_users,
+                            )
+                        selected_dump_option_profile = save_option_profile("dump", target_profile_name, dump_profile_values)
+                        _apply_dump_option_profile_values(
+                            form_state,
+                            selected_dump_option_profile["values"],
+                            "dump_instance",
+                            include_users=True,
+                        )
+                        _apply_dump_option_profile_values(
+                            form_state,
+                            selected_dump_option_profile["values"],
+                            "dump_schemas",
+                        )
+                        selected_dump_option_profile_name = target_profile_name
+                        dump_option_profile_edit_name = target_profile_name
+                        dump_option_profile_json = _format_option_profile_editor_json(
+                            selected_dump_option_profile["values"]
+                        )
+                        dump_option_profile_entries = load_option_profiles("dump")
+                        flash(f"Saved dump option profile `{target_profile_name}`.", "success")
+                    elif option_profile_action == "delete":
+                        if not selected_dump_option_profile_name:
+                            raise ValueError("Select a dump option profile to delete.")
+                        if not delete_option_profile("dump", selected_dump_option_profile_name):
+                            raise ValueError("Selected dump option profile was not found.")
+                        flash(f"Deleted dump option profile `{selected_dump_option_profile_name}`.", "success")
+                        if dump_option_profile_edit_name == selected_dump_option_profile_name:
+                            dump_option_profile_edit_name = ""
+                        selected_dump_option_profile_name = ""
+                        selected_dump_option_profile = None
+                        dump_option_profile_entries = load_option_profiles("dump")
+                    else:
+                        raise ValueError("Unsupported dump option profile action.")
+            except Exception as error:  # pragma: no cover - depends on runtime services
+                flash(str(error), "error")
+
+            form_state["load_dump_progress_file"] = normalize_progress_file_value(form_state["load_dump_progress_file"])
+        elif operation != "option-profiles":
+            try:
+                if operation == "dump-instance":
+                    par_entry = dump_par_lookup.get(form_state["dump_instance_par_id"])
+                    if par_entry is None:
+                        raise ValueError("Choose an active read/write PAR for dumpInstance.")
+                    dump_options = _build_dump_options(form_state, "dump_instance", include_users=True)
+                    dump_summary_rows = [
+                        ("Operation", "util.dumpInstance"),
+                        ("Target PAR", par_entry["name"]),
+                        ("Output URL", par_entry["par_url"]),
+                        ("Threads", str(dump_options["threads"])),
+                        ("Option Count", str(len(dump_options))),
+                    ]
+                    if selected_dump_option_profile_name:
+                        dump_summary_rows.append(("Option Profile", selected_dump_option_profile_name))
+                    request_payload = build_dump_instance_request(par_entry["par_url"], dump_options)
+                    operation_result = submit_mysqlsh_job(
+                        profile,
+                        credentials,
+                        request_payload,
+                        database=profile.get("database", ""),
+                        operation=operation,
+                        operation_name="dumpInstance",
+                        owner_username=session.get("mysql_username", ""),
+                        owner_profile_name=session.get("profile_name", ""),
+                        options_json=json.dumps(dump_options, indent=2, sort_keys=True),
+                        form_state=form_state,
+                        selected_schemas=selected_schemas,
+                        summary_rows=dump_summary_rows,
+                    )
+                elif operation == "dump-schemas":
+                    par_entry = dump_par_lookup.get(form_state["dump_schemas_par_id"])
+                    if par_entry is None:
+                        raise ValueError("Choose an active read/write PAR for dumpSchemas.")
+                    if not selected_schemas:
+                        raise ValueError("Select at least one schema for dumpSchemas.")
+                    dump_options = _build_dump_options(form_state, "dump_schemas")
+                    dump_summary_rows = [
+                        ("Operation", "util.dumpSchemas"),
+                        ("Schemas", ", ".join(selected_schemas)),
+                        ("Target PAR", par_entry["name"]),
+                        ("Output URL", par_entry["par_url"]),
+                        ("Threads", str(dump_options["threads"])),
+                        ("Option Count", str(len(dump_options))),
+                    ]
+                    if selected_dump_option_profile_name:
+                        dump_summary_rows.append(("Option Profile", selected_dump_option_profile_name))
+                    request_payload = build_dump_schemas_request(selected_schemas, par_entry["par_url"], dump_options)
+                    operation_result = submit_mysqlsh_job(
+                        profile,
+                        credentials,
+                        request_payload,
+                        database=profile.get("database", ""),
+                        operation=operation,
+                        operation_name="dumpSchemas",
+                        owner_username=session.get("mysql_username", ""),
+                        owner_profile_name=session.get("profile_name", ""),
+                        options_json=json.dumps(dump_options, indent=2, sort_keys=True),
+                        form_state=form_state,
+                        selected_schemas=selected_schemas,
+                        summary_rows=dump_summary_rows,
+                    )
+                else:
+                    par_entry = load_par_lookup.get(form_state["load_dump_par_id"])
+                    if par_entry is None:
+                        raise ValueError("Choose an active read or read/write PAR for loadDump.")
+                    progress_file = normalize_progress_file_value(form_state["load_dump_progress_file"]) or default_progress_file(
+                        par_entry["id"], "load-dump"
+                    )
+                    form_state["load_dump_progress_file"] = progress_file
+                    load_options = _build_load_dump_options(form_state)
+                    load_summary_rows = [
+                        ("Operation", "util.loadDump"),
+                        ("Source PAR", par_entry["name"]),
+                        ("Input URL", par_entry["par_url"]),
+                        ("Progress File", progress_file),
+                        ("Threads", str(load_options["threads"])),
+                        ("Reset Progress", "Yes" if load_options["resetProgress"] else "No"),
+                        ("Option Count", str(len(load_options))),
+                    ]
+                    if selected_load_option_profile_name:
+                        load_summary_rows.append(("Option Profile", selected_load_option_profile_name))
+                    request_payload = build_load_dump_request(par_entry["par_url"], load_options)
+                    operation_result = submit_mysqlsh_job(
+                        profile,
+                        credentials,
+                        request_payload,
+                        database=profile.get("database", ""),
+                        operation=operation,
+                        operation_name="loadDump",
+                        owner_username=session.get("mysql_username", ""),
+                        owner_profile_name=session.get("profile_name", ""),
+                        options_json=json.dumps(load_options, indent=2, sort_keys=True),
+                        form_state=form_state,
+                        selected_schemas=selected_schemas,
+                        summary_rows=load_summary_rows,
+                    )
+
+                session["last_mysqlsh_job_id"] = operation_result["job_id"]
+                redirect_values = {
+                    "page": operation,
+                    "operation": operation,
+                    "job_id": operation_result["job_id"],
+                }
+                if selected_dump_option_profile_name:
+                    redirect_values["dump_option_profile_name"] = selected_dump_option_profile_name
+                if selected_load_option_profile_name:
+                    redirect_values["load_option_profile_name"] = selected_load_option_profile_name
+                flash(
+                    f"MySQL Shell {operation_result['operation_name']} submitted. Job ID: {operation_result['job_id']}.",
+                    "success",
+                )
+                return redirect(url_for("shell_operations_page", **redirect_values))
+            except Exception as error:  # pragma: no cover - depends on runtime services
+                flash(str(error), "error")
+
+    if not dump_option_profile_json:
+        dump_profile_values = (
+            selected_dump_option_profile["values"]
+            if selected_dump_option_profile is not None
+            else _extract_dump_option_profile_values(form_state, "dump_instance", include_users=True)
+        )
+        dump_option_profile_json = _format_option_profile_editor_json(dump_profile_values)
+
+    if not load_option_profile_json:
+        load_profile_values = (
+            selected_load_option_profile["values"]
+            if selected_load_option_profile is not None
+            else _extract_load_option_profile_values(form_state)
+        )
+        load_option_profile_json = _format_option_profile_editor_json(load_profile_values)
+
+    operation_history = []
+    if shell_page == "history":
+        operation_history = list_mysqlsh_job_history(
+            owner_username=session.get("mysql_username", ""),
+            owner_profile_name=None,
+            limit=100,
+        )
 
     return render_dashboard(
         "shell_operations.html",
         page_title="MySQL Shell Operations",
         object_storage_config=config,
         shell_operation_options=SHELL_OPERATION_OPTIONS,
+        shell_page=shell_page,
         operation=operation,
         form_state=form_state,
         selected_schemas=selected_schemas,
@@ -866,8 +1484,120 @@ def shell_operations_page():
         load_defer_table_indexes_options=LOAD_DEFER_TABLE_INDEXES_OPTIONS,
         load_handle_grant_errors_options=LOAD_HANDLE_GRANT_ERRORS_OPTIONS,
         load_update_gtid_set_options=LOAD_UPDATE_GTID_SET_OPTIONS,
+        load_dump_ssh_enabled=bool(profile.get("ssh_enabled")),
+        dump_option_profile_entries=dump_option_profile_entries,
+        load_option_profile_entries=load_option_profile_entries,
+        selected_dump_option_profile_name=selected_dump_option_profile_name,
+        selected_load_option_profile_name=selected_load_option_profile_name,
+        selected_dump_option_profile=selected_dump_option_profile,
+        selected_load_option_profile=selected_load_option_profile,
+        dump_option_profile_edit_name=dump_option_profile_edit_name,
+        load_option_profile_edit_name=load_option_profile_edit_name,
+        dump_option_profile_json=dump_option_profile_json,
+        load_option_profile_json=load_option_profile_json,
+        option_profile_kind=option_profile_kind,
+        is_history_page=shell_page == "history",
+        is_option_profiles_page=shell_page == "option-profiles",
+        operation_history=operation_history,
         operation_result=operation_result,
     )
+
+
+@app.route("/mysql-shell/operations/jobs/<job_id>", methods=["GET"])
+@login_required
+def mysqlsh_job_status_api(job_id):
+    shell_page = _normalize_shell_operations_page(
+        request.args.get("page"),
+        request.args.get("operation"),
+        request.args.get("view"),
+    )
+    job_access_profile_name = None if shell_page == "history" else session.get("profile_name", "")
+    snapshot = build_mysqlsh_job_snapshot(
+        job_id,
+        owner_username=session.get("mysql_username", ""),
+        owner_profile_name=job_access_profile_name,
+    )
+    if snapshot is None:
+        return jsonify({"error": "MySQL Shell job not found."}), 404
+    return jsonify(snapshot)
+
+
+@app.route("/mysql-shell/operations/jobs/<job_id>/cancel", methods=["POST"])
+@login_required
+def mysqlsh_job_cancel(job_id):
+    next_page = _normalize_shell_operations_page(
+        request.form.get("page"),
+        request.form.get("operation"),
+        request.form.get("view"),
+    )
+    job_access_profile_name = None if next_page == "history" else session.get("profile_name", "")
+    snapshot = cancel_mysqlsh_job(
+        job_id,
+        owner_username=session.get("mysql_username", ""),
+        owner_profile_name=job_access_profile_name,
+    )
+    if snapshot is None:
+        flash("MySQL Shell job not found.", "error")
+        return redirect(url_for("shell_operations_page"))
+
+    if snapshot["status"] == "cancel_requested":
+        flash(f"MySQL Shell {snapshot['operation_name']} cancel requested.", "success")
+    elif snapshot["status"] == "failed":
+        flash(f"MySQL Shell {snapshot['operation_name']} already finished with status {snapshot['status_label']}.", "error")
+    elif snapshot["status"] == "succeeded":
+        flash(f"MySQL Shell {snapshot['operation_name']} already finished with status {snapshot['status_label']}.", "success")
+    else:
+        flash(f"MySQL Shell {snapshot['operation_name']} job canceled.", "success")
+    session["last_mysqlsh_job_id"] = snapshot["job_id"]
+    return redirect(
+        url_for(
+            "shell_operations_page",
+            page=next_page,
+            operation=snapshot["operation"],
+            job_id=snapshot["job_id"],
+        )
+    )
+
+
+@app.route("/mysql-shell/operations/jobs/<job_id>/cleanup", methods=["POST"])
+@login_required
+def mysqlsh_job_cleanup(job_id):
+    next_page = _normalize_shell_operations_page(
+        request.form.get("page"),
+        request.form.get("operation"),
+        request.form.get("view"),
+    )
+    job_access_profile_name = None if next_page == "history" else session.get("profile_name", "")
+    snapshot = build_mysqlsh_job_snapshot(
+        job_id,
+        owner_username=session.get("mysql_username", ""),
+        owner_profile_name=job_access_profile_name,
+    )
+    if snapshot is None:
+        flash("MySQL Shell job not found.", "error")
+        return redirect(url_for("shell_operations_page"))
+
+    try:
+        cleanup_mysqlsh_job(
+            job_id,
+            owner_username=session.get("mysql_username", ""),
+            owner_profile_name=job_access_profile_name,
+        )
+    except Exception as error:  # pragma: no cover - filesystem/runtime path
+        flash(str(error), "error")
+        return redirect(
+            url_for(
+                "shell_operations_page",
+                page=next_page,
+                operation=snapshot["operation"],
+                job_id=job_id,
+            )
+        )
+
+    if session.get("last_mysqlsh_job_id") == job_id:
+        session.pop("last_mysqlsh_job_id", None)
+    flash(f"MySQL Shell {snapshot['operation_name']} job cleaned up.", "success")
+    return redirect(url_for("shell_operations_page", page=next_page, operation=snapshot["operation"]))
 
 
 @app.errorhandler(pymysql.err.OperationalError)
@@ -886,9 +1616,11 @@ def handle_mysql_interface_error(error):
 
 def _initialize_app_files():
     ensure_profile_store()
+    ensure_option_profile_store()
     ensure_object_storage_store()
     ensure_par_store()
     ensure_runtime_dirs()
+    ensure_job_store()
 
 
 _initialize_app_files()

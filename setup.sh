@@ -13,6 +13,14 @@ SSL_CERT_FILE_INPUT="${SSL_CERT_FILE:-}"
 SSL_KEY_FILE_INPUT="${SSL_KEY_FILE:-}"
 SERVICE_USER_INPUT="${SERVICE_USER:-}"
 SERVICE_GROUP_INPUT="${SERVICE_GROUP:-}"
+MYSQLSH_BINARY_INPUT="${MYSQLSH_BINARY:-}"
+MYSQLSH_EMBEDDED_VERSION="${MYSQLSH_EMBEDDED_VERSION:-9.7.0}"
+MYSQLSH_URL_MACOS_X86="${MYSQLSH_URL_MACOS_X86:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-macos15-x86-64bit.tar.gz}"
+MYSQLSH_URL_MACOS_ARM="${MYSQLSH_URL_MACOS_ARM:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-macos15-arm64.tar.gz}"
+MYSQLSH_URL_LINUX_X86="${MYSQLSH_URL_LINUX_X86:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-linux-glibc2.28-x86-64bit.tar.gz}"
+MYSQLSH_URL_LINUX_ARM="${MYSQLSH_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-linux-glibc2.28-arm-64bit.tar.gz}"
+MYSQLSH_RUNTIME_DIR="${MYSQLSH_RUNTIME_DIR:-$SCRIPT_DIR/runtime/mysqlsh}"
+MYSQLSH_DOWNLOADS_DIR="${MYSQLSH_DOWNLOADS_DIR:-$SCRIPT_DIR/runtime/downloads}"
 EXISTING_DEFAULT_HTTP_PORT=""
 EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
@@ -33,7 +41,9 @@ Arguments:
 
 Environment overrides:
   OS_FAMILY, DEPLOY_MODE, HOST, HTTP_PORT, HTTPS_PORT, SSL_CERT_FILE,
-  SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE
+  SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
+  MYSQLSH_BINARY, MYSQLSH_EMBEDDED_VERSION, MYSQLSH_RUNTIME_DIR,
+  MYSQLSH_DOWNLOADS_DIR
 EOF
 }
 
@@ -187,7 +197,7 @@ load_existing_runtime_env() {
     return 0
   fi
 
-  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE
+  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE MYSQLSH_BINARY
   # shellcheck disable=SC1090
   source "$RUNTIME_ENV_FILE"
   EXISTING_DEFAULT_HTTP_PORT="${DEFAULT_HTTP_PORT:-}"
@@ -369,18 +379,172 @@ open_firewall_port() {
   echo "Firewall tool not found. Open ${port_value}/tcp for ${protocol_label} manually on this host." >&2
 }
 
+resolve_machine_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "x86_64" ;;
+    arm64|arm64e|aarch64) echo "arm64" ;;
+    *)
+      echo "Unsupported machine architecture '$(uname -m)'. Supported: x86_64, arm64." >&2
+      return 1
+      ;;
+  esac
+}
+
+resolve_mysqlsh_download_url() {
+  local os_family="$1"
+  local machine_arch
+
+  machine_arch="$(resolve_machine_arch)" || return 1
+  case "${os_family}:${machine_arch}" in
+    macos:x86_64) echo "$MYSQLSH_URL_MACOS_X86" ;;
+    macos:arm64) echo "$MYSQLSH_URL_MACOS_ARM" ;;
+    ubuntu:x86_64|ol8:x86_64|ol9:x86_64) echo "$MYSQLSH_URL_LINUX_X86" ;;
+    ubuntu:arm64|ol8:arm64|ol9:arm64) echo "$MYSQLSH_URL_LINUX_ARM" ;;
+    *)
+      echo "No embedded MySQL Shell tarball is configured for OS family '$os_family' on architecture '$machine_arch'." >&2
+      return 1
+      ;;
+  esac
+}
+
+require_download_tool() {
+  if command -v curl >/dev/null 2>&1; then
+    echo "curl"
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    echo "wget"
+    return 0
+  fi
+
+  echo "curl or wget is required to download the embedded MySQL Shell tarball." >&2
+  return 1
+}
+
+download_file() {
+  local url="$1"
+  local destination="$2"
+  local downloader
+  local temp_destination="${destination}.part"
+
+  downloader="$(require_download_tool)" || return 1
+  rm -f "$temp_destination"
+
+  case "$downloader" in
+    curl)
+      curl --fail --location --show-error --retry 3 --output "$temp_destination" "$url"
+      ;;
+    wget)
+      wget --tries=3 --output-document "$temp_destination" "$url"
+      ;;
+  esac
+
+  mv "$temp_destination" "$destination"
+}
+
+strip_tarball_suffix() {
+  local filename="$1"
+
+  filename="${filename%.tar.gz}"
+  filename="${filename%.tgz}"
+  printf '%s\n' "$filename"
+}
+
+extract_tarball_root() {
+  local archive_path="$1"
+  local archive_root
+
+  archive_root="$(tar -tzf "$archive_path" | sed -n '1s#/.*##p')"
+  if [[ -z "$archive_root" ]]; then
+    echo "Unable to determine the extracted root directory for $archive_path." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$archive_root"
+}
+
+install_embedded_mysqlsh() {
+  local os_family="$1"
+  local download_url
+  local archive_name
+  local archive_path
+  local target_dir
+  local current_link
+  local staging_dir=""
+  local archive_root
+
+  download_url="$(resolve_mysqlsh_download_url "$os_family")" || return 1
+  archive_name="${download_url##*/}"
+  archive_path="$MYSQLSH_DOWNLOADS_DIR/$archive_name"
+  target_dir="$MYSQLSH_RUNTIME_DIR/$(strip_tarball_suffix "$archive_name")"
+  current_link="$MYSQLSH_RUNTIME_DIR/current"
+
+  mkdir -p "$MYSQLSH_RUNTIME_DIR" "$MYSQLSH_DOWNLOADS_DIR"
+
+  if [[ ! -x "$target_dir/bin/mysqlsh" ]]; then
+    if [[ ! -f "$archive_path" ]]; then
+      echo "Downloading embedded MySQL Shell ${MYSQLSH_EMBEDDED_VERSION}: $archive_name" >&2
+      download_file "$download_url" "$archive_path"
+    else
+      echo "Reusing downloaded MySQL Shell archive: $archive_path" >&2
+    fi
+
+    archive_root="$(extract_tarball_root "$archive_path")" || return 1
+    staging_dir="$(mktemp -d "$MYSQLSH_RUNTIME_DIR/.extract.XXXXXX")"
+    tar -xzf "$archive_path" -C "$staging_dir"
+
+    if [[ ! -d "$staging_dir/$archive_root" ]]; then
+      echo "Expected extracted directory '$archive_root' was not found in $archive_path." >&2
+      rm -rf "$staging_dir"
+      return 1
+    fi
+
+    rm -rf "$target_dir"
+    mv "$staging_dir/$archive_root" "$target_dir"
+    rm -rf "$staging_dir"
+  else
+    echo "Reusing embedded MySQL Shell: $target_dir" >&2
+  fi
+
+  ln -sfn "$target_dir" "$current_link"
+  if [[ ! -x "$current_link/bin/mysqlsh" ]]; then
+    echo "Embedded MySQL Shell binary was not found at $current_link/bin/mysqlsh." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$current_link/bin/mysqlsh"
+}
+
+run_mysqlsh_installer() {
+  local os_family="$1"
+  local configured_binary="$MYSQLSH_BINARY_INPUT"
+
+  if [[ -n "$configured_binary" ]]; then
+    if [[ ! -x "$configured_binary" ]]; then
+      echo "MYSQLSH_BINARY points to a non-executable path: $configured_binary" >&2
+      return 1
+    fi
+    printf '%s\n' "$configured_binary"
+    return 0
+  fi
+
+  install_embedded_mysqlsh "$os_family"
+}
+
 write_runtime_env() {
   local http_port="$1"
   local https_port="$2"
   local host_value="$3"
   local ssl_cert_file="$4"
   local ssl_key_file="$5"
+  local mysqlsh_binary="$6"
 
   {
     echo "# Generated by setup.sh"
     echo "HOST=$host_value"
     echo "DEFAULT_HTTP_PORT=$http_port"
     echo "DEFAULT_HTTPS_PORT=$https_port"
+    echo "MYSQLSH_BINARY=$mysqlsh_binary"
     if [[ -n "$ssl_cert_file" ]]; then
       echo "SSL_CERT_FILE=$ssl_cert_file"
     else
@@ -627,37 +791,6 @@ setup_systemd_services() {
   esac
 }
 
-run_mysqlsh_installer() {
-  local os_family="$1"
-  local platform_dir
-  local installer
-
-  platform_dir="$(resolve_platform_dir "$os_family")" || return 1
-  installer="$platform_dir/install_mysql_shell_innovation.sh"
-  if [[ ! -x "$installer" ]]; then
-    echo "Installer script not found or not executable: $installer" >&2
-    return 1
-  fi
-  "$installer"
-}
-
-resolve_platform_dir() {
-  local os_family="$1"
-  local candidate
-  local lowercase_dir="$SCRIPT_DIR/$os_family"
-  local uppercase_dir="$SCRIPT_DIR/$(printf '%s' "$os_family" | tr '[:lower:]' '[:upper:]')"
-
-  for candidate in "$lowercase_dir" "$uppercase_dir"; do
-    if [[ -d "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Platform directory not found for '$os_family'. Checked: $lowercase_dir and $uppercase_dir" >&2
-  return 1
-}
-
 ensure_python() {
   if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 is required but was not found in PATH." >&2
@@ -677,6 +810,7 @@ main() {
   local service_group=""
   local prompted_ports
   local tls_assets
+  local mysqlsh_binary
 
   load_existing_runtime_env
   parse_args "$@"
@@ -750,8 +884,8 @@ main() {
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
 
-  run_mysqlsh_installer "$os_family"
-  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file"
+  mysqlsh_binary="$(run_mysqlsh_installer "$os_family")"
+  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$mysqlsh_binary"
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file"
 
   case "$deploy_mode" in
@@ -776,6 +910,7 @@ main() {
   echo "Default host: $host_value"
   echo "Default HTTP port: $http_port"
   echo "Default HTTPS port: $https_port"
+  echo "MySQL Shell binary: $mysqlsh_binary"
   if [[ -n "$ssl_cert_file" && -n "$ssl_key_file" ]]; then
     echo "TLS certificate: $ssl_cert_file"
     echo "TLS key: $ssl_key_file"

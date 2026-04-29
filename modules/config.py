@@ -6,10 +6,12 @@ APP_TITLE = "MySQL Shell Web"
 APP_SLUG = "mysql-shell-web"
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PROFILE_STORE = ROOT_DIR / "profiles.json"
+OPTION_PROFILE_STORE = ROOT_DIR / "mysqlsh_option_profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 PAR_STORE = ROOT_DIR / "par_registry.json"
 RUNTIME_DIR = ROOT_DIR / "runtime"
 PROGRESS_DIR = RUNTIME_DIR / "progress"
+JOBS_DIR = RUNTIME_DIR / "jobs"
 MYSQLSH_USER_CONFIG_HOME = RUNTIME_DIR / "mysqlsh"
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
 
@@ -23,6 +25,7 @@ DEFAULT_PROFILE = {
     "ssh_port": 22,
     "ssh_user": "",
     "ssh_key_path": "",
+    "ssh_config_file": "",
 }
 
 DEFAULT_OBJECT_STORAGE = {
