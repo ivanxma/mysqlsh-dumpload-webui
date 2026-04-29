@@ -1,0 +1,15 @@
+{
+  "profiles": [
+    {
+      "name": "local",
+      "host": "127.0.0.1",
+      "port": 3310,
+      "database": "mysql",
+      "ssh_enabled": false,
+      "ssh_host": "",
+      "ssh_port": 22,
+      "ssh_user": "",
+      "ssh_key_path": ""
+    }
+  ]
+}

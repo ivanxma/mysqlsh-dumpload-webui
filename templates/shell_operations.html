@@ -1,0 +1,730 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL Shell</p>
+  <h2>Operations</h2>
+  <p>Run <code>dumpInstance</code>, <code>dumpSchemas</code>, and <code>loadDump</code> against the current MySQL session using PAR URLs managed in this app.</p>
+</section>
+
+<section class="tab-shell">
+  <div class="tab-bar">
+    {% for value, label in shell_operation_options %}
+    <a class="tab-link {% if operation == value %}active{% endif %}" href="{{ url_for('shell_operations_page', operation=value) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+{% if operation == "dump-instance" %}
+<section class="panel">
+  <h3>dumpInstance</h3>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="operation" value="dump-instance">
+
+    <label>
+      Target PAR *
+      <select name="dump_instance_par_id">
+        <option value="">Choose a read/write PAR</option>
+        {% for entry in dump_pars %}
+        <option value="{{ entry.id }}" {% if form_state.dump_instance_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Threads
+      <input name="dump_instance_threads" type="number" min="1" value="{{ form_state.dump_instance_threads }}">
+    </label>
+    <label>
+      Max Rate
+      <input name="dump_instance_max_rate" type="text" value="{{ form_state.dump_instance_max_rate }}" placeholder="0 or 100M">
+    </label>
+    <label>
+      Compression
+      <select name="dump_instance_compression">
+        {% for value, label in compression_options %}
+        <option value="{{ value }}" {% if form_state.dump_instance_compression == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Dialect
+      <select name="dump_instance_dialect">
+        {% for value, label in dump_dialect_options %}
+        <option value="{{ value }}" {% if form_state.dump_instance_dialect == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Bytes Per Chunk
+      <input name="dump_instance_bytes_per_chunk" type="text" value="{{ form_state.dump_instance_bytes_per_chunk }}" placeholder="64M">
+    </label>
+    <label>
+      Target Version
+      <input name="dump_instance_target_version" type="text" value="{{ form_state.dump_instance_target_version }}" placeholder="9.7.0">
+    </label>
+    <label>
+      Default Character Set
+      <input name="dump_instance_default_character_set" type="text" value="{{ form_state.dump_instance_default_character_set }}">
+    </label>
+
+    <details class="form-section full-span" open>
+      <summary>Execution Controls</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_instance_show_progress" type="checkbox" value="1" {% if form_state.dump_instance_show_progress %}checked{% endif %}>
+          <span>Show progress</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_dry_run" type="checkbox" value="1" {% if form_state.dump_instance_dry_run %}checked{% endif %}>
+          <span>Dry run</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_consistent" type="checkbox" value="1" {% if form_state.dump_instance_consistent %}checked{% endif %}>
+          <span>Consistent</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_skip_consistency_checks" type="checkbox" value="1" {% if form_state.dump_instance_skip_consistency_checks %}checked{% endif %}>
+          <span>Skip consistency checks</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_skip_upgrade_checks" type="checkbox" value="1" {% if form_state.dump_instance_skip_upgrade_checks %}checked{% endif %}>
+          <span>Skip upgrade checks</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_chunking" type="checkbox" value="1" {% if form_state.dump_instance_chunking %}checked{% endif %}>
+          <span>Chunking</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_checksum" type="checkbox" value="1" {% if form_state.dump_instance_checksum %}checked{% endif %}>
+          <span>Checksum</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_tz_utc" type="checkbox" value="1" {% if form_state.dump_instance_tz_utc %}checked{% endif %}>
+          <span>Convert timestamps to UTC</span>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span" open>
+      <summary>Dump Content</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_instance_ddl_only" type="checkbox" value="1" {% if form_state.dump_instance_ddl_only %}checked{% endif %}>
+          <span>DDL only</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_data_only" type="checkbox" value="1" {% if form_state.dump_instance_data_only %}checked{% endif %}>
+          <span>Data only</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_users" type="checkbox" value="1" {% if form_state.dump_instance_users %}checked{% endif %}>
+          <span>Users</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_events" type="checkbox" value="1" {% if form_state.dump_instance_events %}checked{% endif %}>
+          <span>Events</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_routines" type="checkbox" value="1" {% if form_state.dump_instance_routines %}checked{% endif %}>
+          <span>Routines</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_triggers" type="checkbox" value="1" {% if form_state.dump_instance_triggers %}checked{% endif %}>
+          <span>Triggers</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_libraries" type="checkbox" value="1" {% if form_state.dump_instance_libraries %}checked{% endif %}>
+          <span>Libraries</span>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Filters</summary>
+      <div class="option-grid two-column">
+        <label>
+          Include Schemas
+          <textarea name="dump_instance_include_schemas" rows="3" class="textarea-input" placeholder="schema_one&#10;schema_two">{{ form_state.dump_instance_include_schemas }}</textarea>
+        </label>
+        <label>
+          Exclude Schemas
+          <textarea name="dump_instance_exclude_schemas" rows="3" class="textarea-input" placeholder="mysql&#10;sys">{{ form_state.dump_instance_exclude_schemas }}</textarea>
+        </label>
+        <label>
+          Include Tables
+          <textarea name="dump_instance_include_tables" rows="3" class="textarea-input" placeholder="sales.orders&#10;sales.items">{{ form_state.dump_instance_include_tables }}</textarea>
+        </label>
+        <label>
+          Exclude Tables
+          <textarea name="dump_instance_exclude_tables" rows="3" class="textarea-input" placeholder="audit.logs">{{ form_state.dump_instance_exclude_tables }}</textarea>
+        </label>
+        <label>
+          Include Users
+          <textarea name="dump_instance_include_users" rows="3" class="textarea-input" placeholder="'app'@'%'">{{ form_state.dump_instance_include_users }}</textarea>
+        </label>
+        <label>
+          Exclude Users
+          <textarea name="dump_instance_exclude_users" rows="3" class="textarea-input" placeholder="'mysql.session'@'localhost'">{{ form_state.dump_instance_exclude_users }}</textarea>
+        </label>
+        <label>
+          Include Events
+          <textarea name="dump_instance_include_events" rows="3" class="textarea-input" placeholder="app.cleanup_event">{{ form_state.dump_instance_include_events }}</textarea>
+        </label>
+        <label>
+          Exclude Events
+          <textarea name="dump_instance_exclude_events" rows="3" class="textarea-input" placeholder="app.legacy_event">{{ form_state.dump_instance_exclude_events }}</textarea>
+        </label>
+        <label>
+          Include Routines
+          <textarea name="dump_instance_include_routines" rows="3" class="textarea-input" placeholder="app.process_order">{{ form_state.dump_instance_include_routines }}</textarea>
+        </label>
+        <label>
+          Exclude Routines
+          <textarea name="dump_instance_exclude_routines" rows="3" class="textarea-input" placeholder="app.old_proc">{{ form_state.dump_instance_exclude_routines }}</textarea>
+        </label>
+        <label>
+          Include Triggers
+          <textarea name="dump_instance_include_triggers" rows="3" class="textarea-input" placeholder="app.orders.audit_trigger">{{ form_state.dump_instance_include_triggers }}</textarea>
+        </label>
+        <label>
+          Exclude Triggers
+          <textarea name="dump_instance_exclude_triggers" rows="3" class="textarea-input" placeholder="app.orders.old_trigger">{{ form_state.dump_instance_exclude_triggers }}</textarea>
+        </label>
+        <label>
+          Include Libraries
+          <textarea name="dump_instance_include_libraries" rows="3" class="textarea-input" placeholder="app.my_library">{{ form_state.dump_instance_include_libraries }}</textarea>
+        </label>
+        <label>
+          Exclude Libraries
+          <textarea name="dump_instance_exclude_libraries" rows="3" class="textarea-input" placeholder="app.legacy_library">{{ form_state.dump_instance_exclude_libraries }}</textarea>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>HeatWave Compatibility</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_instance_ocimds" type="checkbox" value="1" {% if form_state.dump_instance_ocimds %}checked{% endif %}>
+          <span>Enable HeatWave compatibility checks</span>
+        </label>
+        <label class="full-span">
+          Compatibility Transformations
+          <select class="schema-picker" name="dump_instance_compatibility" multiple size="8">
+            {% for value, label in dump_compatibility_options %}
+            <option value="{{ value }}" {% if value in form_state.dump_instance_compatibility %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Advanced JSON Options</summary>
+      <label class="full-span">
+        Additional MySQL Shell options object
+        <textarea name="dump_instance_advanced_json" rows="8" class="textarea-input code-area" placeholder='{"where": {"sales.orders": "status = \"OPEN\""}}'>{{ form_state.dump_instance_advanced_json }}</textarea>
+      </label>
+      <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
+    </details>
+
+    <p class="help-text full-span">The selected prefix should be empty before running <code>dumpInstance</code>.</p>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Run dumpInstance</button>
+    </div>
+  </form>
+</section>
+{% elif operation == "dump-schemas" %}
+<section class="panel">
+  <h3>dumpSchemas</h3>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="operation" value="dump-schemas">
+
+    <label>
+      Target PAR *
+      <select name="dump_schemas_par_id">
+        <option value="">Choose a read/write PAR</option>
+        {% for entry in dump_pars %}
+        <option value="{{ entry.id }}" {% if form_state.dump_schemas_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Threads
+      <input name="dump_schemas_threads" type="number" min="1" value="{{ form_state.dump_schemas_threads }}">
+    </label>
+    <label>
+      Max Rate
+      <input name="dump_schemas_max_rate" type="text" value="{{ form_state.dump_schemas_max_rate }}" placeholder="0 or 100M">
+    </label>
+    <label>
+      Compression
+      <select name="dump_schemas_compression">
+        {% for value, label in compression_options %}
+        <option value="{{ value }}" {% if form_state.dump_schemas_compression == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Dialect
+      <select name="dump_schemas_dialect">
+        {% for value, label in dump_dialect_options %}
+        <option value="{{ value }}" {% if form_state.dump_schemas_dialect == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Bytes Per Chunk
+      <input name="dump_schemas_bytes_per_chunk" type="text" value="{{ form_state.dump_schemas_bytes_per_chunk }}" placeholder="64M">
+    </label>
+    <label>
+      Target Version
+      <input name="dump_schemas_target_version" type="text" value="{{ form_state.dump_schemas_target_version }}" placeholder="9.7.0">
+    </label>
+    <label>
+      Default Character Set
+      <input name="dump_schemas_default_character_set" type="text" value="{{ form_state.dump_schemas_default_character_set }}">
+    </label>
+
+    <label class="full-span">
+      Schemas *
+      <select class="schema-picker" name="schemas" multiple size="8">
+        {% for schema in user_schemas %}
+        <option value="{{ schema }}" {% if schema in selected_schemas %}selected{% endif %}>{{ schema }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if schema_error %}
+    <p class="help-text full-span">{{ schema_error }}</p>
+    {% endif %}
+
+    <details class="form-section full-span" open>
+      <summary>Execution Controls</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_schemas_show_progress" type="checkbox" value="1" {% if form_state.dump_schemas_show_progress %}checked{% endif %}>
+          <span>Show progress</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_dry_run" type="checkbox" value="1" {% if form_state.dump_schemas_dry_run %}checked{% endif %}>
+          <span>Dry run</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_consistent" type="checkbox" value="1" {% if form_state.dump_schemas_consistent %}checked{% endif %}>
+          <span>Consistent</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_skip_consistency_checks" type="checkbox" value="1" {% if form_state.dump_schemas_skip_consistency_checks %}checked{% endif %}>
+          <span>Skip consistency checks</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_skip_upgrade_checks" type="checkbox" value="1" {% if form_state.dump_schemas_skip_upgrade_checks %}checked{% endif %}>
+          <span>Skip upgrade checks</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_chunking" type="checkbox" value="1" {% if form_state.dump_schemas_chunking %}checked{% endif %}>
+          <span>Chunking</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_checksum" type="checkbox" value="1" {% if form_state.dump_schemas_checksum %}checked{% endif %}>
+          <span>Checksum</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_tz_utc" type="checkbox" value="1" {% if form_state.dump_schemas_tz_utc %}checked{% endif %}>
+          <span>Convert timestamps to UTC</span>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span" open>
+      <summary>Dump Content</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_schemas_ddl_only" type="checkbox" value="1" {% if form_state.dump_schemas_ddl_only %}checked{% endif %}>
+          <span>DDL only</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_data_only" type="checkbox" value="1" {% if form_state.dump_schemas_data_only %}checked{% endif %}>
+          <span>Data only</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_events" type="checkbox" value="1" {% if form_state.dump_schemas_events %}checked{% endif %}>
+          <span>Events</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_routines" type="checkbox" value="1" {% if form_state.dump_schemas_routines %}checked{% endif %}>
+          <span>Routines</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_triggers" type="checkbox" value="1" {% if form_state.dump_schemas_triggers %}checked{% endif %}>
+          <span>Triggers</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_schemas_libraries" type="checkbox" value="1" {% if form_state.dump_schemas_libraries %}checked{% endif %}>
+          <span>Libraries</span>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Filters</summary>
+      <div class="option-grid two-column">
+        <label>
+          Include Tables
+          <textarea name="dump_schemas_include_tables" rows="3" class="textarea-input" placeholder="sales.orders&#10;sales.items">{{ form_state.dump_schemas_include_tables }}</textarea>
+        </label>
+        <label>
+          Exclude Tables
+          <textarea name="dump_schemas_exclude_tables" rows="3" class="textarea-input" placeholder="audit.logs">{{ form_state.dump_schemas_exclude_tables }}</textarea>
+        </label>
+        <label>
+          Include Events
+          <textarea name="dump_schemas_include_events" rows="3" class="textarea-input" placeholder="app.cleanup_event">{{ form_state.dump_schemas_include_events }}</textarea>
+        </label>
+        <label>
+          Exclude Events
+          <textarea name="dump_schemas_exclude_events" rows="3" class="textarea-input" placeholder="app.legacy_event">{{ form_state.dump_schemas_exclude_events }}</textarea>
+        </label>
+        <label>
+          Include Routines
+          <textarea name="dump_schemas_include_routines" rows="3" class="textarea-input" placeholder="app.process_order">{{ form_state.dump_schemas_include_routines }}</textarea>
+        </label>
+        <label>
+          Exclude Routines
+          <textarea name="dump_schemas_exclude_routines" rows="3" class="textarea-input" placeholder="app.old_proc">{{ form_state.dump_schemas_exclude_routines }}</textarea>
+        </label>
+        <label>
+          Include Triggers
+          <textarea name="dump_schemas_include_triggers" rows="3" class="textarea-input" placeholder="app.orders.audit_trigger">{{ form_state.dump_schemas_include_triggers }}</textarea>
+        </label>
+        <label>
+          Exclude Triggers
+          <textarea name="dump_schemas_exclude_triggers" rows="3" class="textarea-input" placeholder="app.orders.old_trigger">{{ form_state.dump_schemas_exclude_triggers }}</textarea>
+        </label>
+        <label>
+          Include Libraries
+          <textarea name="dump_schemas_include_libraries" rows="3" class="textarea-input" placeholder="app.my_library">{{ form_state.dump_schemas_include_libraries }}</textarea>
+        </label>
+        <label>
+          Exclude Libraries
+          <textarea name="dump_schemas_exclude_libraries" rows="3" class="textarea-input" placeholder="app.legacy_library">{{ form_state.dump_schemas_exclude_libraries }}</textarea>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>HeatWave Compatibility</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="dump_schemas_ocimds" type="checkbox" value="1" {% if form_state.dump_schemas_ocimds %}checked{% endif %}>
+          <span>Enable HeatWave compatibility checks</span>
+        </label>
+        <label class="full-span">
+          Compatibility Transformations
+          <select class="schema-picker" name="dump_schemas_compatibility" multiple size="8">
+            {% for value, label in dump_compatibility_options %}
+            <option value="{{ value }}" {% if value in form_state.dump_schemas_compatibility %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Advanced JSON Options</summary>
+      <label class="full-span">
+        Additional MySQL Shell options object
+        <textarea name="dump_schemas_advanced_json" rows="8" class="textarea-input code-area" placeholder='{"where": {"sales.orders": "status = \"OPEN\""}}'>{{ form_state.dump_schemas_advanced_json }}</textarea>
+      </label>
+      <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
+    </details>
+
+    <div class="form-actions">
+      <button class="button primary" type="submit">Run dumpSchemas</button>
+    </div>
+  </form>
+</section>
+{% else %}
+<section class="panel">
+  <h3>loadDump</h3>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="operation" value="load-dump">
+
+    <label>
+      Source PAR *
+      <select name="load_dump_par_id">
+        <option value="">Choose a read or read/write PAR</option>
+        {% for entry in load_pars %}
+        <option value="{{ entry.id }}" {% if form_state.load_dump_par_id == entry.id %}selected{% endif %}>{{ entry.name }} ({{ entry.target_display }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Threads
+      <input name="load_dump_threads" type="number" min="1" value="{{ form_state.load_dump_threads }}">
+    </label>
+    <label>
+      Background Threads
+      <input name="load_dump_background_threads" type="number" min="1" value="{{ form_state.load_dump_background_threads }}">
+    </label>
+    <label>
+      Wait Dump Timeout
+      <input name="load_dump_wait_dump_timeout" type="text" value="{{ form_state.load_dump_wait_dump_timeout }}" placeholder="0">
+    </label>
+    <label class="full-span">
+      Progress File *
+      <input name="load_dump_progress_file" type="text" value="{{ form_state.load_dump_progress_file }}">
+    </label>
+    <label>
+      Target Schema
+      <input name="load_dump_schema" type="text" value="{{ form_state.load_dump_schema }}">
+    </label>
+    <label>
+      Character Set
+      <input name="load_dump_character_set" type="text" value="{{ form_state.load_dump_character_set }}">
+    </label>
+    <label>
+      Max Bytes Per Transaction
+      <input name="load_dump_max_bytes_per_transaction" type="text" value="{{ form_state.load_dump_max_bytes_per_transaction }}" placeholder="64M">
+    </label>
+
+    <details class="form-section full-span" open>
+      <summary>Execution Controls</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="load_dump_show_progress" type="checkbox" value="1" {% if form_state.load_dump_show_progress %}checked{% endif %}>
+          <span>Show progress</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_dry_run" type="checkbox" value="1" {% if form_state.load_dump_dry_run %}checked{% endif %}>
+          <span>Dry run</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_reset_progress" type="checkbox" value="1" {% if form_state.load_dump_reset_progress %}checked{% endif %}>
+          <span>Reset progress</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_skip_binlog" type="checkbox" value="1" {% if form_state.load_dump_skip_binlog %}checked{% endif %}>
+          <span>Skip binlog</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_ignore_version" type="checkbox" value="1" {% if form_state.load_dump_ignore_version %}checked{% endif %}>
+          <span>Ignore version</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_checksum" type="checkbox" value="1" {% if form_state.load_dump_checksum %}checked{% endif %}>
+          <span>Checksum</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_show_metadata" type="checkbox" value="1" {% if form_state.load_dump_show_metadata %}checked{% endif %}>
+          <span>Show metadata</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_create_invisible_pks" type="checkbox" value="1" {% if form_state.load_dump_create_invisible_pks %}checked{% endif %}>
+          <span>Create invisible PKs</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_drop_existing_objects" type="checkbox" value="1" {% if form_state.load_dump_drop_existing_objects %}checked{% endif %}>
+          <span>Drop existing objects</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_ignore_existing_objects" type="checkbox" value="1" {% if form_state.load_dump_ignore_existing_objects %}checked{% endif %}>
+          <span>Ignore existing objects</span>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span" open>
+      <summary>Load Content</summary>
+      <div class="option-grid">
+        <label class="checkbox-field">
+          <input name="load_dump_load_ddl" type="checkbox" value="1" {% if form_state.load_dump_load_ddl %}checked{% endif %}>
+          <span>Load DDL</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_load_data" type="checkbox" value="1" {% if form_state.load_dump_load_data %}checked{% endif %}>
+          <span>Load data</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_load_users" type="checkbox" value="1" {% if form_state.load_dump_load_users %}checked{% endif %}>
+          <span>Load users</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="load_dump_load_indexes" type="checkbox" value="1" {% if form_state.load_dump_load_indexes %}checked{% endif %}>
+          <span>Load indexes</span>
+        </label>
+        <label>
+          Analyze Tables
+          <select name="load_dump_analyze_tables">
+            {% for value, label in load_analyze_tables_options %}
+            <option value="{{ value }}" {% if form_state.load_dump_analyze_tables == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Defer Table Indexes
+          <select name="load_dump_defer_table_indexes">
+            {% for value, label in load_defer_table_indexes_options %}
+            <option value="{{ value }}" {% if form_state.load_dump_defer_table_indexes == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Handle Grant Errors
+          <select name="load_dump_handle_grant_errors">
+            {% for value, label in load_handle_grant_errors_options %}
+            <option value="{{ value }}" {% if form_state.load_dump_handle_grant_errors == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Update GTID Set
+          <select name="load_dump_update_gtid_set">
+            {% for value, label in load_update_gtid_set_options %}
+            <option value="{{ value }}" {% if form_state.load_dump_update_gtid_set == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Filters</summary>
+      <div class="option-grid two-column">
+        <label>
+          Include Schemas
+          <textarea name="load_dump_include_schemas" rows="3" class="textarea-input" placeholder="schema_one&#10;schema_two">{{ form_state.load_dump_include_schemas }}</textarea>
+        </label>
+        <label>
+          Exclude Schemas
+          <textarea name="load_dump_exclude_schemas" rows="3" class="textarea-input" placeholder="mysql&#10;sys">{{ form_state.load_dump_exclude_schemas }}</textarea>
+        </label>
+        <label>
+          Include Tables
+          <textarea name="load_dump_include_tables" rows="3" class="textarea-input" placeholder="sales.orders&#10;sales.items">{{ form_state.load_dump_include_tables }}</textarea>
+        </label>
+        <label>
+          Exclude Tables
+          <textarea name="load_dump_exclude_tables" rows="3" class="textarea-input" placeholder="audit.logs">{{ form_state.load_dump_exclude_tables }}</textarea>
+        </label>
+        <label>
+          Include Users
+          <textarea name="load_dump_include_users" rows="3" class="textarea-input" placeholder="'app'@'%'">{{ form_state.load_dump_include_users }}</textarea>
+        </label>
+        <label>
+          Exclude Users
+          <textarea name="load_dump_exclude_users" rows="3" class="textarea-input" placeholder="'mysql.session'@'localhost'">{{ form_state.load_dump_exclude_users }}</textarea>
+        </label>
+        <label>
+          Include Events
+          <textarea name="load_dump_include_events" rows="3" class="textarea-input" placeholder="app.cleanup_event">{{ form_state.load_dump_include_events }}</textarea>
+        </label>
+        <label>
+          Exclude Events
+          <textarea name="load_dump_exclude_events" rows="3" class="textarea-input" placeholder="app.legacy_event">{{ form_state.load_dump_exclude_events }}</textarea>
+        </label>
+        <label>
+          Include Routines
+          <textarea name="load_dump_include_routines" rows="3" class="textarea-input" placeholder="app.process_order">{{ form_state.load_dump_include_routines }}</textarea>
+        </label>
+        <label>
+          Exclude Routines
+          <textarea name="load_dump_exclude_routines" rows="3" class="textarea-input" placeholder="app.old_proc">{{ form_state.load_dump_exclude_routines }}</textarea>
+        </label>
+        <label>
+          Include Triggers
+          <textarea name="load_dump_include_triggers" rows="3" class="textarea-input" placeholder="app.orders.audit_trigger">{{ form_state.load_dump_include_triggers }}</textarea>
+        </label>
+        <label>
+          Exclude Triggers
+          <textarea name="load_dump_exclude_triggers" rows="3" class="textarea-input" placeholder="app.orders.old_trigger">{{ form_state.load_dump_exclude_triggers }}</textarea>
+        </label>
+        <label>
+          Include Libraries
+          <textarea name="load_dump_include_libraries" rows="3" class="textarea-input" placeholder="app.my_library">{{ form_state.load_dump_include_libraries }}</textarea>
+        </label>
+        <label>
+          Exclude Libraries
+          <textarea name="load_dump_exclude_libraries" rows="3" class="textarea-input" placeholder="app.legacy_library">{{ form_state.load_dump_exclude_libraries }}</textarea>
+        </label>
+      </div>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Session Initialization</summary>
+      <label class="full-span">
+        Session Init SQL
+        <textarea name="load_dump_session_init_sql" rows="5" class="textarea-input code-area" placeholder="SET SESSION sql_mode='STRICT_TRANS_TABLES';&#10;SET SESSION foreign_key_checks=0;">{{ form_state.load_dump_session_init_sql }}</textarea>
+      </label>
+    </details>
+
+    <details class="form-section full-span">
+      <summary>Advanced JSON Options</summary>
+      <label class="full-span">
+        Additional MySQL Shell options object
+        <textarea name="load_dump_advanced_json" rows="8" class="textarea-input code-area" placeholder='{"disableBulkLoad": true}'>{{ form_state.load_dump_advanced_json }}</textarea>
+      </label>
+      <p class="help-text full-span">Advanced JSON is merged into the generated options object last, so it can supply documented keys that are not surfaced elsewhere.</p>
+    </details>
+
+    <div class="form-actions">
+      <button class="button primary" type="submit">Run loadDump</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if operation_result %}
+<section class="panel">
+  <h3>Execution Result</h3>
+  <div class="tab-shell" data-tab-shell data-default-tab="result-summary">
+    <div class="tab-bar" role="tablist">
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-summary">Summary</button>
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-options">Options</button>
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-stdout">Stdout</button>
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-stderr">Stderr</button>
+      <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="result-script">Script</button>
+    </div>
+
+    <section class="tab-panel" id="result-summary" role="tabpanel" data-tab-panel hidden>
+      <dl class="detail-list compact">
+        {% for label, value in operation_result.summary_rows %}
+        <div>
+          <dt>{{ label }}</dt>
+          <dd>{{ value }}</dd>
+        </div>
+        {% endfor %}
+        <div>
+          <dt>Command</dt>
+          <dd><code>{{ operation_result.command_preview }}</code></dd>
+        </div>
+        <div>
+          <dt>Return Code</dt>
+          <dd>{{ operation_result.returncode }}</dd>
+        </div>
+        <div>
+          <dt>Duration</dt>
+          <dd>{{ operation_result.duration_seconds }} seconds</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="tab-panel" id="result-options" role="tabpanel" data-tab-panel hidden>
+      <pre class="code-block">{{ operation_result.options_json }}</pre>
+    </section>
+
+    <section class="tab-panel" id="result-stdout" role="tabpanel" data-tab-panel hidden>
+      <pre class="code-block">{{ operation_result.stdout or "No stdout output." }}</pre>
+    </section>
+
+    <section class="tab-panel" id="result-stderr" role="tabpanel" data-tab-panel hidden>
+      <pre class="code-block">{{ operation_result.stderr or "No stderr output." }}</pre>
+    </section>
+
+    <section class="tab-panel" id="result-script" role="tabpanel" data-tab-panel hidden>
+      <pre class="code-block">{{ operation_result.script_text }}</pre>
+    </section>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or app_title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body class="login-page">
+    <div class="page-shell">
+      <main class="content-card auth-shell">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          <div class="flash-stack">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endwith %}
+
+        <section class="auth-panel">
+          <div class="page-header">
+            <p class="eyebrow">MySQL Shell Web</p>
+            <h2>{{ app_title }}</h2>
+            <p>Connect to MySQL, select an optional SSH tunnel profile, and then drive Object Storage and MySQL Shell workflows from one dashboard.</p>
+          </div>
+
+          <form method="post" class="form-grid">
+            <div class="field-row">
+              <label>
+                Profile
+                <select name="profile_picker" id="profile-picker">
+                  <option value="">Choose a saved profile</option>
+                  {% for profile in profiles %}
+                  <option value="{{ profile.name }}" {% if profile.name == selected_profile_name %}selected{% endif %}>{{ profile.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <div class="field-actions-inline">
+                <a class="button secondary" href="{{ url_for('profile_page') }}" id="create-profile-link">Create Profile</a>
+              </div>
+            </div>
+
+            <label>
+              Profile Name
+              <input name="profile_name" id="profile_name" type="text" value="{{ selected_profile.name }}">
+            </label>
+            <label>
+              MySQL Host *
+              <input name="host" id="host" type="text" value="{{ selected_profile.host }}" placeholder="127.0.0.1">
+            </label>
+            <label>
+              MySQL Port *
+              <input name="port" id="port" type="number" min="1" value="{{ selected_profile.port }}">
+            </label>
+            <label>
+              Default Database
+              <input name="database" id="database" type="text" value="{{ selected_profile.database or 'mysql' }}">
+            </label>
+
+            <label class="checkbox-field">
+              <input name="ssh_enabled" id="ssh_enabled" type="checkbox" value="1" {% if selected_profile.ssh_enabled %}checked{% endif %}>
+              <span>Use SSH Tunnel</span>
+            </label>
+            <label>
+              SSH Jump Host
+              <input name="ssh_host" id="ssh_host" type="text" value="{{ selected_profile.ssh_host }}">
+            </label>
+            <label>
+              SSH Port
+              <input name="ssh_port" id="ssh_port" type="number" min="1" value="{{ selected_profile.ssh_port }}">
+            </label>
+            <label>
+              SSH User
+              <input name="ssh_user" id="ssh_user" type="text" value="{{ selected_profile.ssh_user }}">
+            </label>
+            <label class="full-span">
+              Private Key Path
+              <input name="ssh_key_path" id="ssh_key_path" type="text" value="{{ selected_profile.ssh_key_path }}" placeholder="~/.ssh/id_rsa">
+            </label>
+
+            <label>
+              MySQL Username *
+              <input name="username" type="text" autocomplete="username">
+            </label>
+            <label>
+              MySQL Password
+              <input name="password" type="password" autocomplete="current-password">
+            </label>
+
+            <div class="form-actions">
+              <button class="button primary" type="submit">Login</button>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      (() => {
+        const profiles = {{ profiles|tojson }};
+        const profilePicker = document.getElementById("profile-picker");
+        const createProfileLink = document.getElementById("create-profile-link");
+        const fields = {
+          profile_name: document.getElementById("profile_name"),
+          host: document.getElementById("host"),
+          port: document.getElementById("port"),
+          database: document.getElementById("database"),
+          ssh_enabled: document.getElementById("ssh_enabled"),
+          ssh_host: document.getElementById("ssh_host"),
+          ssh_port: document.getElementById("ssh_port"),
+          ssh_user: document.getElementById("ssh_user"),
+          ssh_key_path: document.getElementById("ssh_key_path")
+        };
+
+        const applyProfile = (profileName) => {
+          const profile = profiles.find((item) => item.name === profileName);
+          if (!profile) {
+            createProfileLink.href = "{{ url_for('profile_page') }}";
+            return;
+          }
+          fields.profile_name.value = profile.name || "";
+          fields.host.value = profile.host || "";
+          fields.port.value = profile.port || 3306;
+          fields.database.value = profile.database || "mysql";
+          fields.ssh_enabled.checked = !!profile.ssh_enabled;
+          fields.ssh_host.value = profile.ssh_host || "";
+          fields.ssh_port.value = profile.ssh_port || 22;
+          fields.ssh_user.value = profile.ssh_user || "";
+          fields.ssh_key_path.value = profile.ssh_key_path || "";
+          createProfileLink.href = "{{ url_for('profile_page') }}" + "?selected_profile=" + encodeURIComponent(profile.name || "");
+        };
+
+        profilePicker.addEventListener("change", (event) => {
+          applyProfile(event.target.value);
+        });
+        applyProfile(profilePicker.value);
+      })();
+    </script>
+  </body>
+</html>

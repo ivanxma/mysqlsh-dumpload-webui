@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.runtime.env
+runtime/
+tls/
+par_registry.json

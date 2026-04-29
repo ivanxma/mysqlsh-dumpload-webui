@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Object Storage</p>
+  <h2>Folders</h2>
+  <p>Object Storage folders are prefix-based. Empty planned folders are tracked locally until objects exist under the prefix.</p>
+</section>
+
+{% if folder_error %}
+<section class="panel">
+  <p class="help-text">{{ folder_error }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Current Prefix</h3>
+      <nav class="breadcrumbs" aria-label="Folder breadcrumbs">
+        {% for item in folder_state.breadcrumbs %}
+        <a href="{{ url_for('folder_manager_page', current_prefix=item.relative_prefix) }}">{{ item.label }}</a>
+        {% endfor %}
+      </nav>
+      <p class="help-text">Bucket scope: {{ folder_state.current_full_prefix }}</p>
+    </div>
+    {% if folder_state.current_prefix %}
+    <a class="button secondary" href="{{ url_for('folder_manager_page', current_prefix=folder_state.parent_prefix) }}">Up One Level</a>
+    {% endif %}
+  </div>
+
+  <form method="post" class="inline-create-form">
+    <input type="hidden" name="folder_action" value="create">
+    <input type="hidden" name="current_prefix" value="{{ folder_state.current_prefix }}">
+    <label>
+      New Folder Name
+      <input name="folder_name" type="text" placeholder="new-prefix">
+    </label>
+    <button class="button primary" type="submit">Create Folder</button>
+  </form>
+</section>
+
+<section class="split-layout">
+  <article class="panel">
+    <h3>Folders</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Source</th>
+            <th>Full Prefix</th>
+            <th>Open</th>
+            <th>Rename</th>
+            <th>Delete</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for folder in folder_state.folders %}
+          <tr>
+            <td>{{ folder.name }}</td>
+            <td>
+              {% if folder.from_object_storage %}
+              <span class="badge good">Object Storage</span>
+              {% endif %}
+              {% if folder.from_registry %}
+              <span class="badge muted">Planned</span>
+              {% endif %}
+            </td>
+            <td>{{ folder.full_prefix }}</td>
+            <td><a class="button secondary" href="{{ url_for('folder_manager_page', current_prefix=folder.relative_prefix) }}">Open</a></td>
+            <td>
+              <form method="post" class="inline-form">
+                <input type="hidden" name="folder_action" value="rename">
+                <input type="hidden" name="current_prefix" value="{{ folder_state.current_prefix }}">
+                <input type="hidden" name="source_prefix" value="{{ folder.relative_prefix }}">
+                <input class="input-inline" name="new_name" type="text" value="{{ folder.name }}">
+                <button class="button secondary" type="submit">Rename</button>
+              </form>
+            </td>
+            <td>
+              <form method="post" class="inline-form">
+                <input type="hidden" name="folder_action" value="delete">
+                <input type="hidden" name="current_prefix" value="{{ folder_state.current_prefix }}">
+                <input type="hidden" name="source_prefix" value="{{ folder.relative_prefix }}">
+                <button class="button secondary danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">No folders exist at this prefix.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h3>Objects in Current Prefix</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Size</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in folder_state.objects %}
+          <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.size }}</td>
+            <td>{{ item.time_created or "-" }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="3">No direct objects found in this prefix.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

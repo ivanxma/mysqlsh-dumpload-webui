@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Admin</p>
+  <h2>Profile</h2>
+  <p>Maintain reusable MySQL connection profiles. Passwords stay in session and are never written to disk.</p>
+  {% if not logged_in %}
+  <div class="page-header-actions">
+    <a class="button secondary" href="{{ url_for('login', profile=selected_profile_name or editing_profile.name) }}">Back to Login</a>
+  </div>
+  {% endif %}
+</section>
+
+<section class="split-layout">
+  <article class="panel">
+    <h3>Saved Profiles</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>MySQL Host</th>
+            <th>Database</th>
+            <th>SSH</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for profile in profiles %}
+          <tr>
+            <td>{{ profile.name }}</td>
+            <td>{{ profile.host }}:{{ profile.port }}</td>
+            <td>{{ profile.database }}</td>
+            <td>{{ "Yes" if profile.ssh_enabled else "No" }}</td>
+            <td><a class="button secondary" href="{{ url_for('profile_page', selected_profile=profile.name) }}">Edit</a></td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">No saved profiles.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h3>{{ "Edit Profile" if editing_profile.name else "Create Profile" }}</h3>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="selected_profile" value="{{ selected_profile_name }}">
+      <label>
+        Profile Name *
+        <input name="name" type="text" value="{{ editing_profile.name }}">
+      </label>
+      <label>
+        MySQL Host *
+        <input name="host" type="text" value="{{ editing_profile.host }}">
+      </label>
+      <label>
+        MySQL Port *
+        <input name="port" type="number" min="1" value="{{ editing_profile.port }}">
+      </label>
+      <label>
+        Default Database
+        <input name="database" type="text" value="{{ editing_profile.database }}">
+      </label>
+      <label class="checkbox-field">
+        <input name="ssh_enabled" type="checkbox" value="1" {% if editing_profile.ssh_enabled %}checked{% endif %}>
+        <span>Use SSH Tunnel</span>
+      </label>
+      <label>
+        SSH Jump Host
+        <input name="ssh_host" type="text" value="{{ editing_profile.ssh_host }}">
+      </label>
+      <label>
+        SSH Port
+        <input name="ssh_port" type="number" min="1" value="{{ editing_profile.ssh_port }}">
+      </label>
+      <label>
+        SSH User
+        <input name="ssh_user" type="text" value="{{ editing_profile.ssh_user }}">
+      </label>
+      <label class="full-span">
+        Private Key Path
+        <input name="ssh_key_path" type="text" value="{{ editing_profile.ssh_key_path }}">
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit" name="profile_action" value="save">Save Profile</button>
+        <button class="button secondary danger" type="submit" name="profile_action" value="delete" {% if not editing_profile.name %}disabled{% endif %}>Delete</button>
+      </div>
+    </form>
+  </article>
+</section>
+{% endblock %}

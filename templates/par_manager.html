@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Object Storage</p>
+  <h2>PAR Manager</h2>
+  <p>Create bucket or prefix PARs with a controlled expiration. Generated URLs are stored locally so the Operations page can reuse them later.</p>
+</section>
+
+<section class="split-layout">
+  <article class="panel">
+    <h3>Create PAR</h3>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="par_action" value="create">
+      <label>
+        PAR Name *
+        <input name="name" type="text" value="{{ form_values.name }}">
+      </label>
+      <label>
+        Target Type
+        <select name="target_type">
+          {% for value, label in par_target_options %}
+          <option value="{{ value }}" {% if form_values.target_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Relative Prefix
+        <input name="relative_prefix" type="text" value="{{ form_values.relative_prefix }}" placeholder="dumps/2026/">
+      </label>
+      <label>
+        Access
+        <select name="access_type">
+          {% for value, label in par_access_options %}
+          <option value="{{ value }}" {% if form_values.access_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Expires At *
+        <input name="expires_at" type="datetime-local" value="{{ form_values.expires_at }}">
+      </label>
+      <label class="checkbox-field">
+        <input name="allow_listing" type="checkbox" value="1" {% if form_values.allow_listing %}checked{% endif %}>
+        <span>Allow object listing</span>
+      </label>
+      <p class="help-text full-span">For MySQL Shell dump and load workflows, use a bucket or prefix PAR with object listing enabled.</p>
+      <div class="form-actions">
+        <button class="button primary" type="submit">Create PAR</button>
+      </div>
+    </form>
+  </article>
+
+  <article class="panel">
+    <h3>Stored PARs</h3>
+    {% if par_entries %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Target</th>
+            <th>Access</th>
+            <th>Expires</th>
+            <th>Status</th>
+            <th>URL</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in par_entries %}
+          <tr>
+            <td>{{ entry.name }}</td>
+            <td>{{ entry.target_display }}</td>
+            <td>{{ entry.access_type }}</td>
+            <td>{{ entry.expires_at_local or "-" }}</td>
+            <td><span class="badge {% if entry.is_active %}good{% else %}warn{% endif %}">{{ entry.status_label }}</span></td>
+            <td class="url-cell">
+              <input class="code-input" type="text" readonly value="{{ entry.par_url }}">
+            </td>
+            <td>
+              <form method="post" class="inline-form">
+                <input type="hidden" name="par_action" value="delete">
+                <input type="hidden" name="entry_id" value="{{ entry.id }}">
+                <button class="button secondary danger" type="submit">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p>No PARs have been created for the active bucket.</p>
+    </div>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

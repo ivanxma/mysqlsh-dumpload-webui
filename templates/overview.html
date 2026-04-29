@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Dashboard</p>
+  <h2>Overview</h2>
+  <p>MySQL login, OCI Object Storage access, and MySQL Shell dump and load workflows are all anchored from this session.</p>
+</section>
+
+<section class="info-grid">
+  <article class="info-card metric-card">
+    <span class="meta-label">MySQL</span>
+    <strong class="metric-value">{{ "Connected" if mysql_overview.connected else "Unavailable" }}</strong>
+    <p class="metric-copy">{{ mysql_overview.current_schema or "No default schema" }}</p>
+  </article>
+  <article class="info-card metric-card">
+    <span class="meta-label">Object Storage</span>
+    <strong class="metric-value">{{ object_storage_config.bucket_name or "Not configured" }}</strong>
+    <p class="metric-copy">{{ object_storage_config.bucket_prefix or "/" }}</p>
+  </article>
+  <article class="info-card metric-card">
+    <span class="meta-label">Stored PARs</span>
+    <strong class="metric-value">{{ stored_par_count }}</strong>
+    <p class="metric-copy">{{ active_par_count }} active for the current bucket</p>
+  </article>
+  <article class="info-card metric-card">
+    <span class="meta-label">mysqlsh</span>
+    <strong class="metric-value">{{ "Ready" if mysqlsh_status.available else "Missing" }}</strong>
+    <p class="metric-copy">{{ mysqlsh_status.version or mysqlsh_status.error }}</p>
+  </article>
+</section>
+
+<section class="tab-shell" data-tab-shell data-default-tab="overview-environment">
+  <div class="tab-bar" role="tablist">
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-environment">Environment</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-workflow">Workflow</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-pars">Active PARs</button>
+  </div>
+
+  <section class="tab-panel" id="overview-environment" role="tabpanel" data-tab-panel hidden>
+    <div class="split-layout">
+      <article class="panel">
+        <h3>MySQL Session</h3>
+        <dl class="detail-list compact">
+          <div>
+            <dt>Status</dt>
+            <dd>
+              <span class="badge {% if mysql_overview.connected %}good{% else %}warn{% endif %}">
+                {{ "Connected" if mysql_overview.connected else "Unavailable" }}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt>Server</dt>
+            <dd>{{ mysql_overview.server_host or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Version</dt>
+            <dd>{{ mysql_overview.version or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Default Schema</dt>
+            <dd>{{ mysql_overview.current_schema or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Accessible Schemas</dt>
+            <dd>{{ mysql_overview.schema_count }}</dd>
+          </div>
+        </dl>
+        {% if mysql_overview.error %}
+        <p class="help-text">{{ mysql_overview.error }}</p>
+        {% endif %}
+      </article>
+
+      <article class="panel">
+        <h3>Object Storage</h3>
+        <dl class="detail-list compact">
+          <div>
+            <dt>Namespace</dt>
+            <dd>{{ object_storage_config.namespace or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Bucket</dt>
+            <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Root Prefix</dt>
+            <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
+          </div>
+          <div>
+            <dt>OCI Profile</dt>
+            <dd>{{ object_storage_config.config_profile or "-" }}</dd>
+          </div>
+          <div>
+            <dt>OCI Config File</dt>
+            <dd>{{ object_storage_config.config_file or "-" }}</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="overview-workflow" role="tabpanel" data-tab-panel hidden>
+    <div class="info-grid">
+      <article class="panel workflow-card">
+        <span class="meta-label">1</span>
+        <h3>Set Connection State</h3>
+        <p>Save a MySQL profile, optionally enable SSH tunneling, and verify the server session on login.</p>
+      </article>
+      <article class="panel workflow-card">
+        <span class="meta-label">2</span>
+        <h3>Create a PAR</h3>
+        <p>Generate a bucket or prefix PAR with an explicit expiration so dump and load jobs have a reusable target URL.</p>
+      </article>
+      <article class="panel workflow-card">
+        <span class="meta-label">3</span>
+        <h3>Run mysqlsh</h3>
+        <p>Use the Operations page to execute <code>dumpInstance</code>, <code>dumpSchemas</code>, or <code>loadDump</code> and review stdout, stderr, and the generated script.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="overview-pars" role="tabpanel" data-tab-panel hidden>
+    {% if par_entries %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Target</th>
+            <th>Access</th>
+            <th>Expires</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in par_entries %}
+          <tr>
+            <td>{{ entry.name }}</td>
+            <td>{{ entry.target_display }}</td>
+            <td>{{ entry.access_type }}</td>
+            <td>{{ entry.expires_at_local or "-" }}</td>
+            <td><span class="badge {% if entry.is_active %}good{% else %}warn{% endif %}">{{ entry.status_label }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p>No PARs are stored for the current bucket yet.</p>
+      <a class="button secondary" href="{{ url_for('par_manager_page') }}">Open PAR Manager</a>
+    </div>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

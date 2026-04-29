@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or app_title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      {% if logged_in %}
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">MySQL Shell</p>
+          <h1><a class="topbar-home-link" href="{{ url_for('overview_page') }}">{{ app_title }}</a></h1>
+        </div>
+        <div class="topbar-meta">
+          <div>
+            <span class="meta-label">User</span>
+            <strong>{{ current_user or "-" }}</strong>
+          </div>
+          <div>
+            <span class="meta-label">Profile</span>
+            <strong>{{ current_profile_name or "-" }}</strong>
+          </div>
+          <div>
+            <span class="meta-label">Connection</span>
+            <strong>{{ connection_summary or "-" }}</strong>
+          </div>
+          <div>
+            <span class="meta-label">Bucket</span>
+            <strong>{{ object_storage_config.bucket_name or "-" }}</strong>
+          </div>
+          <form method="post" action="{{ url_for('logout') }}">
+            <button class="button secondary" type="submit">Logout</button>
+          </form>
+        </div>
+      </header>
+
+      <nav class="nav-groups">
+        {% for group in nav_groups %}
+        {% set group_id = "nav-group-" ~ loop.index %}
+        <section class="nav-group" data-nav-group>
+          <button
+            class="nav-group-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="{{ group_id }}"
+            data-nav-toggle
+          >
+            <span class="nav-group-title">{{ group["label"] }}</span>
+            <span class="nav-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="nav-links" id="{{ group_id }}" data-nav-links hidden>
+            {% for item in group["items"] %}
+            <a
+              href="{{ url_for(item["endpoint"]) }}"
+              class="nav-link {% if current_endpoint == item["endpoint"] %}active{% endif %}"
+            >
+              {{ item["label"] }}
+            </a>
+            {% endfor %}
+          </div>
+        </section>
+        {% endfor %}
+      </nav>
+      {% endif %}
+
+      <main class="content-card">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          <div class="flash-stack">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    {% if logged_in %}
+    <script>
+      (() => {
+        const groups = Array.from(document.querySelectorAll("[data-nav-group]"));
+        const storageKey = "mysql-shell-web-open-nav-group";
+        if (!groups.length) {
+          return;
+        }
+
+        const setOpenGroup = (groupToOpen) => {
+          groups.forEach((group) => {
+            const button = group.querySelector("[data-nav-toggle]");
+            const links = group.querySelector("[data-nav-links]");
+            const isOpen = group === groupToOpen;
+            group.classList.toggle("open", isOpen);
+            if (button) {
+              button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            }
+            if (links) {
+              links.hidden = !isOpen;
+            }
+          });
+          if (!groupToOpen) {
+            window.sessionStorage.removeItem(storageKey);
+            return;
+          }
+          const links = groupToOpen.querySelector("[data-nav-links]");
+          if (links && links.id) {
+            window.sessionStorage.setItem(storageKey, links.id);
+          }
+        };
+
+        const savedId = window.sessionStorage.getItem(storageKey);
+        const initialGroup = groups.find((group) => {
+          const links = group.querySelector("[data-nav-links]");
+          return links && links.id === savedId;
+        }) || groups.find((group) => group.querySelector(".nav-link.active")) || null;
+        setOpenGroup(initialGroup);
+
+        groups.forEach((group) => {
+          const button = group.querySelector("[data-nav-toggle]");
+          if (!button) {
+            return;
+          }
+          button.addEventListener("click", () => {
+            setOpenGroup(group.classList.contains("open") ? null : group);
+          });
+        });
+      })();
+    </script>
+    {% endif %}
+
+    <script>
+      (() => {
+        const tabShells = document.querySelectorAll("[data-tab-shell]");
+        tabShells.forEach((shell) => {
+          const links = Array.from(shell.querySelectorAll("[data-tab-link]"));
+          const panels = Array.from(shell.querySelectorAll("[data-tab-panel]"));
+          if (!links.length || !panels.length) {
+            return;
+          }
+
+          const setActive = (targetId) => {
+            links.forEach((link) => {
+              const isActive = link.dataset.tabTarget === targetId;
+              link.classList.toggle("active", isActive);
+              link.setAttribute("aria-selected", isActive ? "true" : "false");
+            });
+            panels.forEach((panel) => {
+              const isActive = panel.id === targetId;
+              panel.classList.toggle("active", isActive);
+              panel.hidden = !isActive;
+            });
+          };
+
+          links.forEach((link) => {
+            link.addEventListener("click", () => {
+              setActive(link.dataset.tabTarget);
+            });
+          });
+
+          const defaultTarget = shell.dataset.defaultTab || links[0].dataset.tabTarget;
+          setActive(defaultTarget);
+        });
+      })();
+    </script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
