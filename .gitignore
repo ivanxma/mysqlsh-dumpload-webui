@@ -7,3 +7,4 @@ runtime/
 tls/
 par_registry.json
 mysqlsh_option_profiles.json
+object_storage.json

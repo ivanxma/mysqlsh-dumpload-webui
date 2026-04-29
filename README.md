@@ -26,7 +26,7 @@
 - `setup.sh`: bootstrap script for Python environment, runtime config, and optional service setup
 - `start_http.sh` / `start_https.sh`: local launch scripts
 - `profiles.json`: starter MySQL connection profiles
-- `object_storage.json`: starter OCI Object Storage defaults
+- `object_storage.json`: local OCI Object Storage settings file created in the working copy and intentionally git-ignored
 - `mysqlsh_option_profiles.json`: dump/load option profile store created on first use
 - `runtime/`: embedded `mysqlsh`, progress files, and background job state
 
@@ -75,7 +75,8 @@
 
 - `.runtime.env`, `.venv/`, `runtime/`, `tls/`, and `par_registry.json` are local runtime artifacts and are git-ignored.
 - `.runtime.env` stores the resolved embedded `MYSQLSH_BINARY` path used by the app and systemd services.
-- `profiles.json` and `object_storage.json` are intended as editable local defaults checked into the repo.
+- `profiles.json` is an editable local default file checked into the repo.
+- `object_storage.json` is intentionally local-only and git-ignored because it can contain sensitive tenancy, namespace, bucket, and folder metadata.
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.
 - `runtime/jobs/` stores background job metadata plus `stdout`/`stderr` logs for each Shell operation.
