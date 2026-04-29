@@ -51,6 +51,26 @@
 7. Open the `dumpInstance`, `dumpSchemas`, or `loadDump` tab on the Shell Operations screen, then optionally apply a saved dump or load option profile before running the job.
 8. Use the top-level History tab to reopen completed jobs, inspect retries/stdout/stderr, and clean up finished job files.
 
+## setup.sh Port Setup
+
+- `setup.sh` accepts listener ports either as positional arguments, flags, or environment variables.
+- Positional form:
+  - `./setup.sh <os_family> <deploy_mode> [http_port] [https_port]`
+- Flag form:
+  - `./setup.sh ubuntu both --http-port 8080 --https-port 8443`
+- Environment form:
+  - `HTTP_PORT=8080 HTTPS_PORT=8443 ./setup.sh ol9 both`
+- In an interactive run, `setup.sh` prompts for the port or ports required by the selected deploy mode:
+  - `http`: prompts for the HTTP port
+  - `https`: prompts for the HTTPS port
+  - `both`: prompts for both ports
+  - `none`: does not prompt for listener ports
+- If a required port was omitted, the prompt shows the current or default value as guidance, but you must enter an explicit numeric port. Pressing Enter does not silently accept the displayed value.
+- Listener ports must be numeric values between `1` and `65535`.
+- The selected ports are saved in `.runtime.env` as `DEFAULT_HTTP_PORT` and `DEFAULT_HTTPS_PORT`.
+- `./start_http.sh` uses the saved HTTP port and `./start_https.sh` uses the saved HTTPS port.
+- You can still override the saved port temporarily at launch time with `PORT=<port> ./start_http.sh` or `PORT=<port> ./start_https.sh`.
+
 ## Overview and Operations
 
 - The Overview page has Environment, Events, Workflow, and Active PARs tabs.

@@ -289,17 +289,26 @@ prompt_for_text_value() {
 prompt_for_port_value() {
   local label="$1"
   local current_value="$2"
+  local require_explicit_value="${3:-no}"
   local entered_value
   local normalized_value
 
   while true; do
-    printf '%s port [%s]: ' "$label" "$current_value" >&2
+    if [[ "$require_explicit_value" == "yes" ]]; then
+      printf '%s port [%s] (required): ' "$label" "$current_value" >&2
+    else
+      printf '%s port [%s]: ' "$label" "$current_value" >&2
+    fi
     if ! read -r entered_value; then
       echo >&2
       echo "$current_value"
       return 0
     fi
     if [[ -z "$entered_value" ]]; then
+      if [[ "$require_explicit_value" == "yes" ]]; then
+        echo "${label} port is required. Enter a numeric port between 1 and 65535." >&2
+        continue
+      fi
       echo "$current_value"
       return 0
     fi
@@ -309,7 +318,11 @@ prompt_for_port_value() {
       return 0
     fi
 
-    echo "Enter a numeric port between 1 and 65535, or press Enter to keep $current_value." >&2
+    if [[ "$require_explicit_value" == "yes" ]]; then
+      echo "Enter a numeric port between 1 and 65535." >&2
+    else
+      echo "Enter a numeric port between 1 and 65535, or press Enter to keep $current_value." >&2
+    fi
   done
 }
 
@@ -326,25 +339,20 @@ prompt_for_ports_if_needed() {
   case "$deploy_mode" in
     http)
       if [[ -z "$HTTP_PORT_INPUT" ]]; then
-        echo "Press Enter to keep the current HTTP port." >&2
-        http_port="$(prompt_for_port_value "HTTP" "$http_port")"
+        http_port="$(prompt_for_port_value "HTTP" "$http_port" "yes")"
       fi
       ;;
     https)
       if [[ -z "$HTTPS_PORT_INPUT" ]]; then
-        echo "Press Enter to keep the current HTTPS port." >&2
-        https_port="$(prompt_for_port_value "HTTPS" "$https_port")"
+        https_port="$(prompt_for_port_value "HTTPS" "$https_port" "yes")"
       fi
       ;;
     both)
-      if [[ -z "$HTTP_PORT_INPUT" || -z "$HTTPS_PORT_INPUT" ]]; then
-        echo "Press Enter to keep the current port values." >&2
-      fi
       if [[ -z "$HTTP_PORT_INPUT" ]]; then
-        http_port="$(prompt_for_port_value "HTTP" "$http_port")"
+        http_port="$(prompt_for_port_value "HTTP" "$http_port" "yes")"
       fi
       if [[ -z "$HTTPS_PORT_INPUT" ]]; then
-        https_port="$(prompt_for_port_value "HTTPS" "$https_port")"
+        https_port="$(prompt_for_port_value "HTTPS" "$https_port" "yes")"
       fi
       ;;
     none)
