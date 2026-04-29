@@ -7,6 +7,35 @@ from pymysql.cursors import DictCursor
 from .config import SYSTEM_SCHEMAS
 
 try:
+    import paramiko
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    paramiko = None
+
+
+def _patch_paramiko_for_sshtunnel():
+    if paramiko is None or hasattr(paramiko, "DSSKey"):
+        return
+
+    class _UnsupportedDSSKey:
+        @classmethod
+        def from_private_key_file(cls, *args, **kwargs):
+            raise paramiko.SSHException(
+                "DSA private keys are not supported by the installed Paramiko version."
+            )
+
+        @classmethod
+        def from_private_key(cls, *args, **kwargs):
+            raise paramiko.SSHException(
+                "DSA private keys are not supported by the installed Paramiko version."
+            )
+
+    # sshtunnel 0.4 expects paramiko.DSSKey to exist, but Paramiko 4 removed it.
+    paramiko.DSSKey = _UnsupportedDSSKey
+
+
+_patch_paramiko_for_sshtunnel()
+
+try:
     from sshtunnel import SSHTunnelForwarder
 except ImportError:  # pragma: no cover - optional dependency at runtime
     SSHTunnelForwarder = None
