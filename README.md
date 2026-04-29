@@ -9,6 +9,7 @@
 - Creates and tracks Pre-Authenticated Requests (PARs) used by MySQL Shell operations
 - Lets you browse, create, rename, and delete managed Object Storage prefixes
 - Runs MySQL Shell `dumpInstance`, `dumpSchemas`, and `loadDump` jobs from the UI
+- Uses native `mysqlsh` SSH options for dump/load execution when an SSH-enabled profile is selected
 - Stores progress files and generated MySQL Shell config under a local runtime directory
 
 ## Repository Layout
@@ -36,6 +37,13 @@
 4. Save Object Storage settings.
 5. Create a PAR for the dump/load target prefix.
 6. Run `dumpInstance`, `dumpSchemas`, or `loadDump` from the Shell Operations screen.
+
+## SSH Tunnel Behavior
+
+- Saved profiles can define a jump host, SSH user, SSH port, and private key path.
+- Profile-based MySQL connectivity is available from the login flow and schema discovery helpers.
+- MySQL Shell operations do not reuse the app's Python-level forwarded port. For SSH-enabled profiles, the app invokes `mysqlsh` with `--ssh` and `--ssh-identity-file` so the shell owns the SSH and MySQL connection context for `dumpInstance`, `dumpSchemas`, and `loadDump`.
+- The private key path in the selected profile must exist on the host where this web app runs.
 
 ## Runtime and Local Files
 

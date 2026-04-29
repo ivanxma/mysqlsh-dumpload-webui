@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .config import MYSQLSH_USER_CONFIG_HOME, PROGRESS_DIR, ROOT_DIR
-from .mysql_connection import mysql_endpoint
 
 
 def ensure_runtime_dirs():
@@ -78,6 +77,62 @@ def _build_mysql_uri(username, host, port, database=""):
     return uri
 
 
+def _build_mysqlsh_ssh_target(profile):
+    ssh_host = str(profile.get("ssh_host", "")).strip()
+    ssh_user = str(profile.get("ssh_user", "")).strip()
+    ssh_key_path = os.path.expanduser(str(profile.get("ssh_key_path", "")).strip())
+    ssh_port = int(profile.get("ssh_port") or 22)
+
+    if not ssh_host or not ssh_user or not ssh_key_path:
+        raise ValueError("SSH-enabled profiles require jump host, SSH user, and private key path.")
+    if not os.path.exists(ssh_key_path):
+        raise ValueError(f"SSH private key does not exist: {ssh_key_path}")
+
+    return f"{ssh_user}@{ssh_host}:{ssh_port}", ssh_key_path
+
+
+def _build_mysqlsh_command(mysqlsh_binary, profile, credentials, script_path, *, database=""):
+    if not credentials.get("username"):
+        raise ValueError("No active MySQL username is stored in the current session.")
+    if not profile.get("host"):
+        raise ValueError("The selected profile does not have a MySQL host configured.")
+
+    uri = _build_mysql_uri(
+        credentials["username"],
+        profile["host"],
+        profile["port"],
+        database or profile.get("database", ""),
+    )
+    command = [
+        mysqlsh_binary,
+        "--js",
+        "--no-wizard",
+    ]
+
+    if profile.get("ssh_enabled"):
+        # Let mysqlsh own the SSH tunnel so dump/load worker connections reuse the same connection context.
+        ssh_target, ssh_key_path = _build_mysqlsh_ssh_target(profile)
+        command.extend(
+            [
+                "--ssh",
+                ssh_target,
+                "--ssh-identity-file",
+                ssh_key_path,
+            ]
+        )
+
+    command.extend(
+        [
+            "--uri",
+            uri,
+            "--passwords-from-stdin",
+            "--file",
+            script_path,
+        ]
+    )
+    return command
+
+
 def _js_script_for_call(invocation):
     return "\n".join(
         [
@@ -135,32 +190,22 @@ def execute_mysqlsh_script(profile, credentials, script_text, *, database="", op
         script_path = handle.name
 
     try:
-        with mysql_endpoint(profile) as endpoint:
-            uri = _build_mysql_uri(
-                credentials["username"],
-                endpoint["host"],
-                endpoint["port"],
-                database or profile.get("database", ""),
-            )
-            command = [
-                mysqlsh_status["binary"],
-                "--js",
-                "--no-wizard",
-                "--uri",
-                uri,
-                "--passwords-from-stdin",
-                "--file",
-                script_path,
-            ]
-            result = subprocess.run(
-                command,
-                input=f"{credentials['password']}\n",
-                capture_output=True,
-                text=True,
-                env=_mysqlsh_env(),
-                cwd=str(ROOT_DIR),
-                check=False,
-            )
+        command = _build_mysqlsh_command(
+            mysqlsh_status["binary"],
+            profile,
+            credentials,
+            script_path,
+            database=database,
+        )
+        result = subprocess.run(
+            command,
+            input=f"{credentials['password']}\n",
+            capture_output=True,
+            text=True,
+            env=_mysqlsh_env(),
+            cwd=str(ROOT_DIR),
+            check=False,
+        )
     finally:
         if script_path:
             try:
