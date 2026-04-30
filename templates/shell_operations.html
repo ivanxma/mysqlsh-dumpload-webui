@@ -1,5 +1,67 @@
 {% extends "base.html" %}
 
+{% macro render_dump_filter_selector(tab_id, title, field_suffix, entries, include_value, exclude_value, select_label, empty_label, error_text="", help_text="") %}
+<section class="tab-panel" id="{{ tab_id }}" role="tabpanel" data-tab-panel hidden>
+  <div class="filter-picker" data-filter-editor data-filter-label="{{ title }}">
+    <div class="filter-picker-header">
+      <div>
+        <h4>{{ title }}</h4>
+        {% if help_text %}
+        <p class="help-text">{{ help_text|safe }}</p>
+        {% endif %}
+      </div>
+      <div class="field-actions-inline filter-mode-row">
+        <label class="checkbox-field">
+          <input type="radio" name="{{ field_suffix }}_mode" value="include" checked data-filter-mode>
+          <span>Include</span>
+        </label>
+        <label class="checkbox-field">
+          <input type="radio" name="{{ field_suffix }}_mode" value="exclude" data-filter-mode>
+          <span>Exclude</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field-row filter-picker-row">
+      <label>
+        {{ select_label }}
+        <select data-filter-select {% if not entries %}disabled{% endif %}>
+          <option value="">Choose {{ title|lower }}</option>
+          {% for entry in entries %}
+          <option value="{{ entry.value }}">{{ entry.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-actions-inline">
+        <button class="button primary" type="button" data-filter-add-button {% if not entries %}disabled{% endif %}>Add</button>
+      </div>
+    </div>
+
+    {% if error_text %}
+    <p class="help-text">{{ error_text }}</p>
+    {% elif not entries %}
+    <p class="help-text">No {{ empty_label }} available for the current connection.</p>
+    {% endif %}
+
+    <input type="hidden" name="dump_instance_include_{{ field_suffix }}" value="{{ include_value }}" data-filter-hidden="include">
+    <input type="hidden" name="dump_instance_exclude_{{ field_suffix }}" value="{{ exclude_value }}" data-filter-hidden="exclude">
+
+    <div class="split-layout filter-list-grid">
+      <section class="filter-list-panel">
+        <span class="meta-label">Include</span>
+        <ul class="filter-entry-list" data-filter-list="include"></ul>
+        <p class="help-text" data-filter-empty="include">No objects in the include list.</p>
+      </section>
+      <section class="filter-list-panel">
+        <span class="meta-label">Exclude</span>
+        <ul class="filter-entry-list" data-filter-list="exclude"></ul>
+        <p class="help-text" data-filter-empty="exclude">No objects in the exclude list.</p>
+      </section>
+    </div>
+  </div>
+</section>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">MySQL Shell</p>
@@ -60,7 +122,7 @@
         </select>
       </label>
       <div class="field-actions-inline">
-        <button class="button secondary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
+        <button class="button primary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
       </div>
     </div>
     <label>
@@ -160,8 +222,13 @@
           <span>Users</span>
         </label>
         <label class="checkbox-field">
-          <input name="dump_instance_events" type="checkbox" value="1" {% if form_state.dump_instance_events %}checked{% endif %}>
-          <span>Events</span>
+          <input name="dump_instance_events" type="checkbox" value="1" {% if form_state.dump_instance_events %}checked{% endif %} data-dump-events-toggle>
+          <span>
+            Events
+            {% if dump_instance_enabled_event_count is not none %}
+            <span class="field-inline-note" data-dump-events-count-label {% if not form_state.dump_instance_events %}hidden{% endif %}>({{ dump_instance_enabled_event_count }} enabled)</span>
+            {% endif %}
+          </span>
         </label>
         <label class="checkbox-field">
           <input name="dump_instance_routines" type="checkbox" value="1" {% if form_state.dump_instance_routines %}checked{% endif %}>
@@ -176,67 +243,119 @@
           <span>Libraries</span>
         </label>
       </div>
+      <p class="warning-note full-span" data-dump-events-warning {% if not form_state.dump_instance_events %}hidden{% endif %}>Enabled Event when restored to TargetDB might get data changed.</p>
     </details>
 
     <details class="form-section full-span">
       <summary>Filters</summary>
-      <div class="option-grid two-column">
-        <label>
-          Include Schemas
-          <textarea name="dump_instance_include_schemas" rows="3" class="textarea-input" placeholder="schema_one&#10;schema_two">{{ form_state.dump_instance_include_schemas }}</textarea>
-        </label>
-        <label>
-          Exclude Schemas
-          <textarea name="dump_instance_exclude_schemas" rows="3" class="textarea-input" placeholder="mysql&#10;sys">{{ form_state.dump_instance_exclude_schemas }}</textarea>
-        </label>
-        <label>
-          Include Tables
-          <textarea name="dump_instance_include_tables" rows="3" class="textarea-input" placeholder="sales.orders&#10;sales.items">{{ form_state.dump_instance_include_tables }}</textarea>
-        </label>
-        <label>
-          Exclude Tables
-          <textarea name="dump_instance_exclude_tables" rows="3" class="textarea-input" placeholder="audit.logs">{{ form_state.dump_instance_exclude_tables }}</textarea>
-        </label>
-        <label>
-          Include Users
-          <textarea name="dump_instance_include_users" rows="3" class="textarea-input" placeholder="'app'@'%'">{{ form_state.dump_instance_include_users }}</textarea>
-        </label>
-        <label>
-          Exclude Users
-          <textarea name="dump_instance_exclude_users" rows="3" class="textarea-input" placeholder="'mysql.session'@'localhost'">{{ form_state.dump_instance_exclude_users }}</textarea>
-        </label>
-        <label>
-          Include Events
-          <textarea name="dump_instance_include_events" rows="3" class="textarea-input" placeholder="app.cleanup_event">{{ form_state.dump_instance_include_events }}</textarea>
-        </label>
-        <label>
-          Exclude Events
-          <textarea name="dump_instance_exclude_events" rows="3" class="textarea-input" placeholder="app.legacy_event">{{ form_state.dump_instance_exclude_events }}</textarea>
-        </label>
-        <label>
-          Include Routines
-          <textarea name="dump_instance_include_routines" rows="3" class="textarea-input" placeholder="app.process_order">{{ form_state.dump_instance_include_routines }}</textarea>
-        </label>
-        <label>
-          Exclude Routines
-          <textarea name="dump_instance_exclude_routines" rows="3" class="textarea-input" placeholder="app.old_proc">{{ form_state.dump_instance_exclude_routines }}</textarea>
-        </label>
-        <label>
-          Include Triggers
-          <textarea name="dump_instance_include_triggers" rows="3" class="textarea-input" placeholder="app.orders.audit_trigger">{{ form_state.dump_instance_include_triggers }}</textarea>
-        </label>
-        <label>
-          Exclude Triggers
-          <textarea name="dump_instance_exclude_triggers" rows="3" class="textarea-input" placeholder="app.orders.old_trigger">{{ form_state.dump_instance_exclude_triggers }}</textarea>
-        </label>
-        <label>
-          Include Libraries
-          <textarea name="dump_instance_include_libraries" rows="3" class="textarea-input" placeholder="app.my_library">{{ form_state.dump_instance_include_libraries }}</textarea>
-        </label>
-        <label>
-          Exclude Libraries
-          <textarea name="dump_instance_exclude_libraries" rows="3" class="textarea-input" placeholder="app.legacy_library">{{ form_state.dump_instance_exclude_libraries }}</textarea>
-        </label>
+      {% set filter_catalog = dump_option_filter_catalog or {} %}
+      {% set filter_errors = filter_catalog.errors or {} %}
+      <p class="help-text full-span">Choose a tab, pick an object, then use the radio button to decide whether the selected object goes into the include list or the exclude list.</p>
+      {% if filter_errors.catalog %}
+      <p class="help-text full-span">{{ filter_errors.catalog }}</p>
+      {% endif %}
+
+      <div class="tab-shell dump-filter-tab-shell full-span" data-tab-shell data-default-tab="dump-filter-schemas">
+        <div class="tab-bar" role="tablist">
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-schemas">Schemas</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-tables">Tables</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-users">Users</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-events">Events</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-routines">Routines</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-triggers">Triggers</button>
+          <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="dump-filter-libraries">Libraries</button>
+        </div>
+
+        {{ render_dump_filter_selector(
+          "dump-filter-schemas",
+          "Schemas",
+          "schemas",
+          filter_catalog.schemas,
+          form_state.dump_instance_include_schemas,
+          form_state.dump_instance_exclude_schemas,
+          "Schema",
+          "schemas",
+          filter_errors.schemas,
+          "Use one schema selector and choose whether each schema should be included or excluded."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-tables",
+          "Tables",
+          "tables",
+          filter_catalog.tables,
+          form_state.dump_instance_include_tables,
+          form_state.dump_instance_exclude_tables,
+          "Table",
+          "tables",
+          filter_errors.tables,
+          "Tables are added as <code>schema.table</code> entries in the dump filter options."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-users",
+          "Users",
+          "users",
+          filter_catalog.users,
+          form_state.dump_instance_include_users,
+          form_state.dump_instance_exclude_users,
+          "User Account",
+          "user accounts",
+          filter_errors.users,
+          "User entries are loaded from <code>mysql.user</code> and stored as <code>'user'@'host'</code>."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-events",
+          "Events",
+          "events",
+          filter_catalog.events,
+          form_state.dump_instance_include_events,
+          form_state.dump_instance_exclude_events,
+          "Event",
+          "events",
+          filter_errors.events,
+          "Events are added as <code>schema.event</code> filter entries."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-routines",
+          "Routines",
+          "routines",
+          filter_catalog.routines,
+          form_state.dump_instance_include_routines,
+          form_state.dump_instance_exclude_routines,
+          "Routine",
+          "routines",
+          filter_errors.routines,
+          "Stored procedures and functions share the same routine filter list."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-triggers",
+          "Triggers",
+          "triggers",
+          filter_catalog.triggers,
+          form_state.dump_instance_include_triggers,
+          form_state.dump_instance_exclude_triggers,
+          "Trigger",
+          "triggers",
+          filter_errors.triggers,
+          "Triggers are added as <code>schema.trigger</code> filter entries."
+        ) }}
+
+        {{ render_dump_filter_selector(
+          "dump-filter-libraries",
+          "Libraries",
+          "libraries",
+          filter_catalog.libraries,
+          form_state.dump_instance_include_libraries,
+          form_state.dump_instance_exclude_libraries,
+          "Library",
+          "libraries",
+          filter_errors.libraries,
+          "Libraries are added as <code>schema.library</code> filter entries."
+        ) }}
       </div>
     </details>
 
@@ -268,7 +387,7 @@
     </details>
 
     <div class="form-actions full-span">
-      <button class="button secondary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
+      <button class="button primary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
       <button class="button secondary danger" type="submit" name="option_profile_action" value="delete" {% if not selected_dump_option_profile_name %}disabled{% endif %}>Delete Profile</button>
     </div>
   </form>
@@ -291,7 +410,7 @@
         </select>
       </label>
       <div class="field-actions-inline">
-        <button class="button secondary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
+        <button class="button primary" type="submit" name="option_profile_action" value="apply" data-option-profile-apply>Apply</button>
       </div>
     </div>
     <label>
@@ -512,7 +631,7 @@
     </details>
 
     <div class="form-actions full-span">
-      <button class="button secondary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
+      <button class="button primary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
       <button class="button secondary danger" type="submit" name="option_profile_action" value="delete" {% if not selected_load_option_profile_name %}disabled{% endif %}>Delete Profile</button>
     </div>
   </form>
@@ -620,6 +739,45 @@
     </div>
     <button type="submit" name="option_profile_action" value="apply" data-option-profile-apply hidden>Apply Profile</button>
 
+    {% if dump_instance_validation %}
+    <div class="full-span validation-stack">
+      <p class="help-text">Validation Checks are based on {{ dump_instance_validation_scope|lower }}.</p>
+      <div class="info-grid validation-grid">
+        <article class="info-card metric-card">
+          <span class="meta-label">Primary Key Check</span>
+          <strong class="metric-value">{{ dump_instance_validation.tables_without_primary_key_count }}</strong>
+          <p class="metric-copy">tables without primary key</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">InnoDB Tables</span>
+          <strong class="metric-value">{{ dump_instance_validation.innodb_table_count }}</strong>
+          <p class="metric-copy">tables with ENGINE=InnoDB</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Lakehouse Tables</span>
+          <strong class="metric-value">{{ dump_instance_validation.lakehouse_table_count }}</strong>
+          <p class="metric-copy">tables with ENGINE=Lakehouse</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Secondary Engine RAPID</span>
+          <strong class="metric-value">{{ dump_instance_validation.rapid_secondary_engine_table_count }}</strong>
+          <p class="metric-copy">tables with <code>secondary_engine=rapid</code></p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Enabled Events</span>
+          <strong class="metric-value">{{ dump_instance_validation.enabled_event_count }}</strong>
+          <p class="metric-copy">enabled events in scope</p>
+        </article>
+      </div>
+      {% if dump_instance_validation.tables_without_primary_key_count %}
+      <p class="warning-note">Primary Key Check: {{ dump_instance_validation.tables_without_primary_key_count }} tables without primary key were found. Review them in <code>Admin &gt; DB Admin</code>.</p>
+      {% endif %}
+      {% if form_state.dump_instance_events and dump_instance_validation.enabled_event_count %}
+      <p class="warning-note">Enabled Events: {{ dump_instance_validation.enabled_event_count }} enabled events are included by the selected dump options. Enabled Event when restored to TargetDB might get data changed.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <label>
       Target PAR *
       <select name="dump_instance_par_id">
@@ -684,7 +842,47 @@
     <p class="help-text full-span">{{ schema_error }}</p>
     {% endif %}
 
+    {% if dump_schemas_validation %}
+    <div class="full-span validation-stack">
+      <p class="help-text">Validation Checks are based on {{ dump_schemas_validation_scope|lower }}.</p>
+      <div class="info-grid validation-grid">
+        <article class="info-card metric-card">
+          <span class="meta-label">Primary Key Check</span>
+          <strong class="metric-value">{{ dump_schemas_validation.tables_without_primary_key_count }}</strong>
+          <p class="metric-copy">tables without primary key</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">InnoDB Tables</span>
+          <strong class="metric-value">{{ dump_schemas_validation.innodb_table_count }}</strong>
+          <p class="metric-copy">tables with ENGINE=InnoDB</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Lakehouse Tables</span>
+          <strong class="metric-value">{{ dump_schemas_validation.lakehouse_table_count }}</strong>
+          <p class="metric-copy">tables with ENGINE=Lakehouse</p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Secondary Engine RAPID</span>
+          <strong class="metric-value">{{ dump_schemas_validation.rapid_secondary_engine_table_count }}</strong>
+          <p class="metric-copy">tables with <code>secondary_engine=rapid</code></p>
+        </article>
+        <article class="info-card metric-card">
+          <span class="meta-label">Enabled Events</span>
+          <strong class="metric-value">{{ dump_schemas_validation.enabled_event_count }}</strong>
+          <p class="metric-copy">enabled events in scope</p>
+        </article>
+      </div>
+      {% if dump_schemas_validation.tables_without_primary_key_count %}
+      <p class="warning-note">Primary Key Check: {{ dump_schemas_validation.tables_without_primary_key_count }} tables without primary key were found in {{ dump_schemas_validation_scope|lower }}. Review them in <code>Admin &gt; DB Admin</code>.</p>
+      {% endif %}
+      {% if form_state.dump_schemas_events and dump_schemas_validation.enabled_event_count %}
+      <p class="warning-note">Enabled Events: {{ dump_schemas_validation.enabled_event_count }} enabled events are included by the selected dump options. Enabled Event when restored to TargetDB might get data changed.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <div class="form-actions full-span">
+      <button class="button primary" type="submit" name="validation_action" value="dump-schemas">Validation</button>
       <button class="button primary" type="submit">Run dumpSchemas</button>
     </div>
   </form>
@@ -866,6 +1064,175 @@
         }
       });
     });
+
+    const parseFilterValues = (rawValue) => {
+      const seen = new Set();
+      return String(rawValue || "")
+        .split(/[\n,]+/)
+        .map((value) => value.trim())
+        .filter((value) => {
+          if (!value || seen.has(value)) {
+            return false;
+          }
+          seen.add(value);
+          return true;
+        });
+    };
+
+    const filterEditors = Array.from(document.querySelectorAll("[data-filter-editor]"));
+    filterEditors.forEach((editor) => {
+      const select = editor.querySelector("[data-filter-select]");
+      const addButton = editor.querySelector("[data-filter-add-button]");
+      const modeRadios = Array.from(editor.querySelectorAll("[data-filter-mode]"));
+      const hiddenInputs = {
+        include: editor.querySelector('[data-filter-hidden="include"]'),
+        exclude: editor.querySelector('[data-filter-hidden="exclude"]'),
+      };
+      const listTargets = {
+        include: editor.querySelector('[data-filter-list="include"]'),
+        exclude: editor.querySelector('[data-filter-list="exclude"]'),
+      };
+      const emptyTargets = {
+        include: editor.querySelector('[data-filter-empty="include"]'),
+        exclude: editor.querySelector('[data-filter-empty="exclude"]'),
+      };
+      const optionLabels = new Map(
+        Array.from(select ? select.options : [])
+          .map((option) => [String(option.value || "").trim(), String(option.textContent || "").trim()])
+          .filter(([value]) => value)
+      );
+      const state = {
+        include: parseFilterValues(hiddenInputs.include ? hiddenInputs.include.value : ""),
+        exclude: parseFilterValues(hiddenInputs.exclude ? hiddenInputs.exclude.value : ""),
+      };
+      state.exclude = state.exclude.filter((value) => !state.include.includes(value));
+
+      const syncHiddenInputs = () => {
+        if (hiddenInputs.include) {
+          hiddenInputs.include.value = state.include.join("\n");
+        }
+        if (hiddenInputs.exclude) {
+          hiddenInputs.exclude.value = state.exclude.join("\n");
+        }
+      };
+
+      const renderList = (mode) => {
+        const listTarget = listTargets[mode];
+        const emptyTarget = emptyTargets[mode];
+        if (!listTarget) {
+          return;
+        }
+
+        listTarget.innerHTML = "";
+        state[mode].forEach((value) => {
+          const item = document.createElement("li");
+          item.className = "filter-entry";
+
+          const valueNode = document.createElement("code");
+          valueNode.textContent = optionLabels.get(value) || value;
+
+          const removeButton = document.createElement("button");
+          removeButton.type = "button";
+          removeButton.className = "filter-entry-remove";
+          removeButton.dataset.filterRemove = mode;
+          removeButton.dataset.filterValue = value;
+          removeButton.textContent = "Remove";
+          removeButton.setAttribute("aria-label", `Remove ${value} from ${mode} list`);
+
+          item.appendChild(valueNode);
+          item.appendChild(removeButton);
+          listTarget.appendChild(item);
+        });
+
+        if (emptyTarget) {
+          emptyTarget.hidden = state[mode].length > 0;
+        }
+      };
+
+      const render = () => {
+        renderList("include");
+        renderList("exclude");
+      };
+
+      const selectedMode = () => {
+        const activeRadio = modeRadios.find((radio) => radio.checked);
+        return activeRadio ? activeRadio.value : "include";
+      };
+
+      const syncAddButton = () => {
+        if (!addButton) {
+          return;
+        }
+        addButton.disabled = !select || !String(select.value || "").trim();
+      };
+
+      if (select) {
+        select.addEventListener("change", syncAddButton);
+      }
+
+      if (addButton) {
+        addButton.addEventListener("click", () => {
+          const selectedValue = String(select ? select.value : "").trim();
+          if (!selectedValue) {
+            return;
+          }
+
+          const mode = selectedMode();
+          const otherMode = mode === "include" ? "exclude" : "include";
+          state[otherMode] = state[otherMode].filter((value) => value !== selectedValue);
+          if (!state[mode].includes(selectedValue)) {
+            state[mode].push(selectedValue);
+          }
+
+          syncHiddenInputs();
+          render();
+
+          if (select) {
+            select.value = "";
+            syncAddButton();
+          }
+        });
+      }
+
+      editor.addEventListener("click", (event) => {
+        const removeButton = event.target.closest("[data-filter-remove]");
+        if (!removeButton) {
+          return;
+        }
+
+        const mode = String(removeButton.dataset.filterRemove || "").trim();
+        const value = String(removeButton.dataset.filterValue || "").trim();
+        if (!mode || !value || !state[mode]) {
+          return;
+        }
+
+        state[mode] = state[mode].filter((item) => item !== value);
+        syncHiddenInputs();
+        render();
+      });
+
+      syncHiddenInputs();
+      render();
+      syncAddButton();
+    });
+
+    const dumpEventsToggle = document.querySelector("[data-dump-events-toggle]");
+    if (dumpEventsToggle) {
+      const dumpEventsCountLabel = document.querySelector("[data-dump-events-count-label]");
+      const dumpEventsWarning = document.querySelector("[data-dump-events-warning]");
+      const syncDumpEventsState = () => {
+        const isChecked = dumpEventsToggle.checked;
+        if (dumpEventsCountLabel) {
+          dumpEventsCountLabel.hidden = !isChecked;
+        }
+        if (dumpEventsWarning) {
+          dumpEventsWarning.hidden = !isChecked;
+        }
+      };
+
+      dumpEventsToggle.addEventListener("change", syncDumpEventsState);
+      syncDumpEventsState();
+    }
   })();
 </script>
 {% if operation_result %}

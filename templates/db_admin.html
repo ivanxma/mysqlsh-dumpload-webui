@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Admin</p>
+  <h2>DB Admin</h2>
+  <p>Control scheduled events and audit base tables for missing primary keys on the current MySQL connection.</p>
+</section>
+
+{% if db_admin_overview.error %}
+<p class="warning-note">{{ db_admin_overview.error }}</p>
+{% endif %}
+
+<section class="tab-shell" data-tab-shell data-default-tab="{{ db_admin_default_tab or 'db-admin-events' }}">
+  <div class="tab-bar" role="tablist">
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="db-admin-events">Event Tab</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="db-admin-primary-key">Primary Key Check</button>
+  </div>
+
+  <section class="tab-panel" id="db-admin-events" role="tabpanel" data-tab-panel hidden>
+    {% set event_scheduler_status = (db_admin_overview.event_scheduler or "").upper() %}
+    <div class="split-layout">
+      <article class="panel">
+        <h3>Event Scheduler</h3>
+        <dl class="detail-list compact">
+          <div>
+            <dt>Status</dt>
+            <dd>
+              <span class="badge {% if event_scheduler_status in ('ON', '1') %}good{% else %}warn{% endif %}">
+                {{ db_admin_overview.event_scheduler or "-" }}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt>Visible Events</dt>
+            <dd>{{ db_admin_overview.event_count }}</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+
+    {% if db_admin_overview.events %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Schema</th>
+            <th>Event</th>
+            <th>Enabled</th>
+            <th>Schedule</th>
+            <th>Last Executed</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in db_admin_overview.events %}
+          <tr>
+            <td>{{ item.event_schema or "-" }}</td>
+            <td>{{ item.event_name or "-" }}</td>
+            <td><span class="badge {{ item.status_badge_class }}">{{ item.status }}</span></td>
+            <td>{{ item.schedule }}</td>
+            <td>{{ item.last_executed or "-" }}</td>
+            <td>
+              <div class="table-action-row">
+                <form method="post" action="{{ url_for('db_admin_event_toggle') }}" class="inline-form">
+                  <input type="hidden" name="event_schema" value="{{ item.event_schema }}">
+                  <input type="hidden" name="event_name" value="{{ item.event_name }}">
+                  <input type="hidden" name="event_action" value="enable">
+                  <button class="button" type="submit" {% if item.is_enabled %}disabled{% endif %}>Enable</button>
+                </form>
+                <form method="post" action="{{ url_for('db_admin_event_toggle') }}" class="inline-form">
+                  <input type="hidden" name="event_schema" value="{{ item.event_schema }}">
+                  <input type="hidden" name="event_name" value="{{ item.event_name }}">
+                  <input type="hidden" name="event_action" value="disable">
+                  <button class="button" type="submit" {% if item.is_disabled %}disabled{% endif %}>Disable</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p>No visible events were found for this connection.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="tab-panel" id="db-admin-primary-key" role="tabpanel" data-tab-panel hidden>
+    {% set pk_check = db_admin_overview.primary_key_check %}
+    <div class="pk-audit-shell" data-pk-shell data-default-detail="{{ db_admin_default_detail or 'pk-databases' }}">
+      <div class="info-grid">
+        <button
+          class="info-card metric-card metric-card-button"
+          type="button"
+          data-pk-card
+          data-pk-target="pk-databases"
+          aria-pressed="false"
+        >
+          <span class="meta-label">Databases</span>
+          <strong class="metric-value">{{ pk_check.database_count }}</strong>
+          <p class="metric-copy">Schemas with base tables in scope</p>
+        </button>
+        <button
+          class="info-card metric-card metric-card-button"
+          type="button"
+          data-pk-card
+          data-pk-target="pk-with-primary-key"
+          aria-pressed="false"
+        >
+          <span class="meta-label">Tables With PK</span>
+          <strong class="metric-value">{{ pk_check.tables_with_primary_key_count }}</strong>
+          <p class="metric-copy">Base tables that already have a primary key</p>
+        </button>
+        <button
+          class="info-card metric-card metric-card-button"
+          type="button"
+          data-pk-card
+          data-pk-target="pk-without-primary-key"
+          aria-pressed="false"
+        >
+          <span class="meta-label">Tables Without PK</span>
+          <strong class="metric-value">{{ pk_check.tables_without_primary_key_count }}</strong>
+          <p class="metric-copy">Base tables that still need a primary key</p>
+        </button>
+      </div>
+
+      {% if db_admin_overview.primary_key_error %}
+      <p class="warning-note">{{ db_admin_overview.primary_key_error }}</p>
+      {% endif %}
+
+      <section class="panel db-admin-detail-panel" id="pk-databases" data-pk-panel hidden>
+        <h3>Databases</h3>
+        {% if pk_check.databases %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Schema</th>
+                <th>Base Tables</th>
+                <th>Tables With PK</th>
+                <th>Tables Without PK</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in pk_check.databases %}
+              <tr>
+                <td>{{ item.schema_name }}</td>
+                <td>{{ item.table_count }}</td>
+                <td>{{ item.tables_with_primary_key_count }}</td>
+                <td>{{ item.tables_without_primary_key_count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p>No user databases with base tables were found.</p>
+        </div>
+        {% endif %}
+      </section>
+
+      <section class="panel db-admin-detail-panel" id="pk-with-primary-key" data-pk-panel hidden>
+        <h3>Tables With Primary Key</h3>
+        {% if pk_check.tables_with_primary_key %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Schema</th>
+                <th>Table</th>
+                <th>Primary Key Columns</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in pk_check.tables_with_primary_key %}
+              <tr>
+                <td>{{ item.table_schema }}</td>
+                <td>{{ item.table_name }}</td>
+                <td>{{ item.primary_key_columns }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p>No base tables with a primary key were found.</p>
+        </div>
+        {% endif %}
+      </section>
+
+      <section class="panel db-admin-detail-panel" id="pk-without-primary-key" data-pk-panel hidden>
+        <form
+          method="post"
+          action="{{ url_for('db_admin_apply_primary_key_fix') }}"
+          data-pk-fix-form
+          onsubmit="return window.confirm('Apply the primary key fix to the selected tables?');"
+        >
+          <input type="hidden" name="detail" value="without-primary-key">
+          <div class="panel-header">
+            <div>
+              <h3>Tables Without Primary Key</h3>
+              <p class="help-text">Select one or more tables, then apply the requested fix in one pass. Tables that already have an AUTO_INCREMENT column will reuse that column for the PRIMARY KEY.</p>
+            </div>
+            <div class="panel-header-actions">
+              {% if pk_check.tables_without_primary_key_count %}
+              <span class="badge warn">Action Needed</span>
+              {% endif %}
+              <span class="help-text" data-pk-selected-count>0 selected</span>
+              <button class="button" type="submit" data-pk-fix-button>Apply Fix</button>
+            </div>
+          </div>
+        {% if pk_check.tables_without_primary_key %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="table-select-cell">
+                  <input
+                    type="checkbox"
+                    data-pk-select-all
+                    aria-label="Select all fixable tables without primary key"
+                  >
+                </th>
+                <th>Schema</th>
+                <th>Table</th>
+                <th>AUTO_INCREMENT Column</th>
+                <th>Planned Fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in pk_check.tables_without_primary_key %}
+              <tr>
+                <td class="table-select-cell">
+                  <input
+                    type="checkbox"
+                    name="selected_tables"
+                    value='{{ {"schema": item.table_schema, "table": item.table_name}|tojson }}'
+                    data-pk-row-checkbox
+                    aria-label="Select {{ item.table_schema }}.{{ item.table_name }}"
+                    {% if not item.can_apply_fix %}disabled{% endif %}
+                  >
+                </td>
+                <td>{{ item.table_schema }}</td>
+                <td>{{ item.table_name }}</td>
+                <td>{{ item.auto_increment_column_display }}</td>
+                <td>{{ item.fix_strategy }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p>All base tables already have a primary key.</p>
+        </div>
+        {% endif %}
+        </form>
+      </section>
+    </div>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const pkShell = document.querySelector("[data-pk-shell]");
+    if (!pkShell) {
+      return;
+    }
+
+    const cards = Array.from(pkShell.querySelectorAll("[data-pk-card]"));
+    const panels = Array.from(pkShell.querySelectorAll("[data-pk-panel]"));
+    if (!cards.length || !panels.length) {
+      return;
+    }
+
+    const setActive = (targetId) => {
+      cards.forEach((card) => {
+        const isActive = card.dataset.pkTarget === targetId;
+        card.classList.toggle("active", isActive);
+        card.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      panels.forEach((panel) => {
+        panel.hidden = panel.id !== targetId;
+      });
+    };
+
+    cards.forEach((card) => {
+      card.addEventListener("click", () => {
+        setActive(card.dataset.pkTarget);
+      });
+    });
+
+    const fixForm = pkShell.querySelector("[data-pk-fix-form]");
+    if (fixForm) {
+      const selectAll = fixForm.querySelector("[data-pk-select-all]");
+      const rowCheckboxes = Array.from(fixForm.querySelectorAll("[data-pk-row-checkbox]"));
+      const selectableCheckboxes = rowCheckboxes.filter((checkbox) => !checkbox.disabled);
+      const applyButton = fixForm.querySelector("[data-pk-fix-button]");
+      const selectedCount = fixForm.querySelector("[data-pk-selected-count]");
+
+      const syncSelection = () => {
+        const checkedCount = selectableCheckboxes.filter((checkbox) => checkbox.checked).length;
+        const totalCount = selectableCheckboxes.length;
+
+        if (selectAll) {
+          selectAll.checked = totalCount > 0 && checkedCount === totalCount;
+          selectAll.indeterminate = checkedCount > 0 && checkedCount < totalCount;
+          selectAll.disabled = totalCount === 0;
+        }
+        if (applyButton) {
+          applyButton.disabled = checkedCount === 0;
+        }
+        if (selectedCount) {
+          selectedCount.textContent = `${checkedCount} selected`;
+        }
+      };
+
+      if (selectAll) {
+        selectAll.addEventListener("change", () => {
+          selectableCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAll.checked;
+          });
+          syncSelection();
+        });
+      }
+
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncSelection);
+      });
+
+      syncSelection();
+    }
+
+    const defaultTarget = pkShell.dataset.defaultDetail || cards[0].dataset.pkTarget;
+    setActive(defaultTarget);
+  })();
+</script>
+{% endblock %}

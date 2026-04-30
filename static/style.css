@@ -252,8 +252,36 @@ pre,
   gap: 20px;
 }
 
+.validation-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.validation-grid {
+  margin-bottom: 0;
+}
+
 .metric-card {
   min-width: 0;
+}
+
+.metric-card-button {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.metric-card-button.active {
+  border-color: rgba(164, 59, 22, 0.34);
+  box-shadow: 0 18px 36px rgba(111, 31, 12, 0.16);
+}
+
+.metric-card-button:not(.active):hover,
+.metric-card-button:not(.active):focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(71, 44, 17, 0.12);
 }
 
 .metric-value {
@@ -283,6 +311,7 @@ pre,
   cursor: pointer;
   color: #fff;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  transition: filter 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
 
 .button.secondary {
@@ -296,10 +325,28 @@ pre,
   background: linear-gradient(135deg, var(--danger) 0%, #6f1a16 100%);
 }
 
+.button:not(:disabled):hover,
+.button:not(:disabled):focus-visible {
+  filter: brightness(1.08);
+  box-shadow: 0 12px 24px rgba(111, 31, 12, 0.2);
+  transform: translateY(-1px);
+}
+
+.button.secondary:not(:disabled):hover,
+.button.secondary:not(:disabled):focus-visible {
+  filter: none;
+  background: #fff;
+  border-color: rgba(164, 59, 22, 0.28);
+  box-shadow: 0 12px 24px rgba(71, 44, 17, 0.1);
+}
+
 .button:disabled {
   cursor: not-allowed;
   color: rgba(33, 29, 24, 0.5);
   background: rgba(181, 176, 170, 0.52);
+  box-shadow: none;
+  transform: none;
+  filter: none;
 }
 
 .form-grid {
@@ -367,6 +414,12 @@ pre,
   line-height: 1.25;
 }
 
+.field-inline-note {
+  color: var(--muted);
+  font-size: 0.88em;
+  font-weight: 600;
+}
+
 .ssh-config-field.is-disabled {
   opacity: 0.58;
 }
@@ -410,6 +463,97 @@ pre,
 
 .option-grid.two-column {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dump-filter-tab-shell {
+  margin-top: 16px;
+}
+
+.filter-picker {
+  display: grid;
+  gap: 16px;
+}
+
+.filter-picker-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-picker-header h4 {
+  margin: 0;
+}
+
+.filter-picker-header .help-text {
+  margin-top: 6px;
+}
+
+.filter-picker-row {
+  margin-top: 0;
+}
+
+.filter-mode-row {
+  margin-top: 0;
+}
+
+.filter-list-grid {
+  margin-bottom: 0;
+}
+
+.filter-list-panel {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 253, 249, 0.88);
+}
+
+.filter-entry-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.filter-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-entry:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.filter-entry code {
+  overflow-wrap: anywhere;
+}
+
+.filter-entry-remove {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.filter-entry-remove:hover,
+.filter-entry-remove:focus-visible {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+
+.filter-manual-grid {
+  margin-top: 18px;
 }
 
 .code-area {
@@ -492,6 +636,18 @@ td {
   vertical-align: top;
 }
 
+.table-select-cell {
+  width: 52px;
+  text-align: center;
+}
+
+.table-select-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 th {
   color: var(--muted);
   font-size: 0.82rem;
@@ -548,6 +704,19 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
+.warning-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(135, 93, 19, 0.22);
+  border-radius: 14px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.db-admin-detail-panel {
+  margin-top: 20px;
+}
+
 .empty-state {
   display: grid;
   gap: 12px;
@@ -566,6 +735,14 @@ tbody tr:last-child td {
   align-items: start;
   gap: 20px;
   margin-bottom: 16px;
+}
+
+.panel-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .breadcrumbs {
@@ -591,6 +768,16 @@ tbody tr:last-child td {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.table-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-action-row form {
+  margin: 0;
 }
 
 .input-inline {

@@ -30,10 +30,9 @@
   </article>
 </section>
 
-<section class="tab-shell" data-tab-shell data-default-tab="overview-environment">
+<section class="tab-shell" data-tab-shell data-default-tab="{{ overview_default_tab or 'overview-environment' }}">
   <div class="tab-bar" role="tablist">
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-environment">Environment</button>
-    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-events">Events</button>
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-workflow">Workflow</button>
     <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="overview-pars">Active PARs</button>
   </div>
@@ -217,60 +216,6 @@
         {% endif %}
       </div>
     </article>
-    {% endif %}
-  </section>
-
-  <section class="tab-panel" id="overview-events" role="tabpanel" data-tab-panel hidden>
-    {% set event_scheduler_status = (mysql_overview.event_scheduler or "").upper() %}
-    <div class="split-layout">
-      <article class="panel">
-        <h3>Event Scheduler</h3>
-        <dl class="detail-list compact">
-          <div>
-            <dt>Status</dt>
-            <dd>
-              <span class="badge {% if event_scheduler_status in ('ON', '1') %}good{% else %}warn{% endif %}">
-                {{ mysql_overview.event_scheduler or "-" }}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt>Visible Events</dt>
-            <dd>{{ mysql_overview.event_count }}</dd>
-          </div>
-        </dl>
-      </article>
-    </div>
-
-    {% if mysql_overview.events %}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Schema</th>
-            <th>Event</th>
-            <th>Enabled</th>
-            <th>Schedule</th>
-            <th>Last Executed</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in mysql_overview.events %}
-          <tr>
-            <td>{{ item.event_schema }}</td>
-            <td>{{ item.event_name }}</td>
-            <td><span class="badge {{ item.status_badge_class }}">{{ item.status }}</span></td>
-            <td>{{ item.schedule }}</td>
-            <td>{{ item.last_executed or "-" }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="empty-state">
-      <p>No visible events were found for this connection.</p>
-    </div>
     {% endif %}
   </section>
 

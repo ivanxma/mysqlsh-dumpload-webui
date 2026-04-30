@@ -17,7 +17,17 @@ from modules.config import (
     MYSQL_SHELL_WEB_SESSION_COOKIE_SAMESITE,
     MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE,
 )
-from modules.mysql_connection import fetch_accessible_schemas, fetch_mysql_overview, test_mysql_connection
+from modules.mysql_connection import (
+    apply_primary_key_fix,
+    fetch_accessible_schemas,
+    fetch_db_admin_overview,
+    fetch_dump_filter_catalog,
+    fetch_dump_validation_summary,
+    fetch_enabled_event_count,
+    fetch_mysql_overview,
+    set_event_status,
+    test_mysql_connection,
+)
 from modules.mysqlsh_runner import (
     build_dump_instance_request,
     build_dump_schemas_request,
@@ -105,6 +115,9 @@ app.config["SESSION_COOKIE_SECURE"] = MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE
 
 MYSQL_PAGE_HEALTHCHECK_ENDPOINTS = {
     "overview_page",
+    "db_admin_page",
+    "db_admin_event_toggle",
+    "db_admin_apply_primary_key_fix",
     "profile_page",
     "object_storage_settings_page",
     "par_manager_page",
@@ -173,6 +186,54 @@ def _normalize_option_profile_kind(value, default="dump"):
     if normalized in {"dump", "load"}:
         return normalized
     return default
+
+
+def _normalize_overview_tab(value):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"environment", "workflow", "pars"}:
+        return normalized
+    return "environment"
+
+
+def _normalize_db_admin_tab(value):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"events", "primary-key"}:
+        return normalized
+    return "events"
+
+
+def _normalize_db_admin_detail(value):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"databases", "with-primary-key", "without-primary-key"}:
+        return normalized
+    return "databases"
+
+
+def _parse_selected_primary_key_targets(values):
+    targets = []
+    seen = set()
+    for raw_value in values or []:
+        raw_text = str(raw_value or "").strip()
+        if not raw_text:
+            continue
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError as error:
+            raise ValueError("Selected table list is invalid.") from error
+        if not isinstance(payload, dict):
+            raise ValueError("Selected table list is invalid.")
+
+        table_schema = str(payload.get("schema", "")).strip()
+        table_name = str(payload.get("table", "")).strip()
+        if not table_schema or not table_name:
+            raise ValueError("Selected table list is invalid.")
+
+        target_key = (table_schema, table_name)
+        if target_key in seen:
+            continue
+        seen.add(target_key)
+        targets.append(target_key)
+    return targets
 
 
 def _normalize_threads(value, default=4):
@@ -898,6 +959,7 @@ def logout():
 def overview_page():
     profile = get_session_profile()
     credentials = get_session_credentials()
+    overview_tab = _normalize_overview_tab(request.args.get("tab"))
     object_storage_config = load_object_storage_config()
     mysql_overview = fetch_mysql_overview(profile, credentials)
     mysqlsh_status = get_mysqlsh_status()
@@ -909,7 +971,114 @@ def overview_page():
         mysql_overview=mysql_overview,
         mysqlsh_status=mysqlsh_status,
         par_entries=par_entries[:8],
+        overview_default_tab=f"overview-{overview_tab}",
     )
+
+
+@app.route("/admin/db-admin")
+@login_required
+def db_admin_page():
+    profile = get_session_profile()
+    credentials = get_session_credentials()
+    db_admin_tab = _normalize_db_admin_tab(request.args.get("tab"))
+    db_admin_detail = _normalize_db_admin_detail(request.args.get("detail"))
+    db_admin_overview = fetch_db_admin_overview(profile, credentials)
+    return render_dashboard(
+        "db_admin.html",
+        page_title="DB Admin",
+        db_admin_overview=db_admin_overview,
+        db_admin_default_tab=f"db-admin-{db_admin_tab}",
+        db_admin_default_detail=f"pk-{db_admin_detail}",
+    )
+
+
+@app.route("/dashboard/events/toggle", methods=["POST"])
+@app.route("/admin/db-admin/events/toggle", methods=["POST"])
+@login_required
+def db_admin_event_toggle():
+    profile = get_session_profile()
+    credentials = get_session_credentials()
+    event_schema = str(request.form.get("event_schema", "")).strip()
+    event_name = str(request.form.get("event_name", "")).strip()
+    event_action = str(request.form.get("event_action", "")).strip().lower()
+
+    if event_action not in {"enable", "disable"}:
+        flash("Choose a valid event action.", "error")
+        return redirect(url_for("db_admin_page", tab="events"))
+
+    try:
+        set_event_status(
+            profile,
+            credentials,
+            event_schema,
+            event_name,
+            enabled=event_action == "enable",
+        )
+        flash(
+            f"Event `{event_schema}`.`{event_name}` {'enabled' if event_action == 'enable' else 'disabled'}.",
+            "success",
+        )
+    except (pymysql.err.OperationalError, pymysql.err.InterfaceError) as error:
+        return _redirect_to_login_for_mysql_unavailable(error)
+    except Exception as error:  # pragma: no cover - depends on runtime services
+        flash(str(error), "error")
+
+    return redirect(url_for("db_admin_page", tab="events"))
+
+
+@app.route("/admin/db-admin/primary-key/apply", methods=["POST"])
+@login_required
+def db_admin_apply_primary_key_fix():
+    profile = get_session_profile()
+    credentials = get_session_credentials()
+    detail = _normalize_db_admin_detail(request.form.get("detail"))
+    redirect_target = url_for("db_admin_page", tab="primary-key", detail=detail)
+
+    try:
+        selected_targets = _parse_selected_primary_key_targets(request.form.getlist("selected_tables"))
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(redirect_target)
+
+    if not selected_targets:
+        table_schema = str(request.form.get("table_schema", "")).strip()
+        table_name = str(request.form.get("table_name", "")).strip()
+        if table_schema and table_name:
+            selected_targets = [(table_schema, table_name)]
+
+    if not selected_targets:
+        flash("Select at least one table to apply the primary key fix.", "error")
+        return redirect(redirect_target)
+
+    successes = []
+    failures = []
+    for table_schema, table_name in selected_targets:
+        try:
+            result = apply_primary_key_fix(profile, credentials, table_schema, table_name)
+            successes.append(result)
+        except (pymysql.err.OperationalError, pymysql.err.InterfaceError) as error:
+            return _redirect_to_login_for_mysql_unavailable(error)
+        except Exception as error:  # pragma: no cover - depends on runtime services
+            failures.append((table_schema, table_name, str(error)))
+
+    if len(successes) == 1 and not failures:
+        result = successes[0]
+        flash(
+            f"Primary key fix applied to `{result['table_schema']}`.`{result['table_name']}`. "
+            f"{result['message']}",
+            "success",
+        )
+    elif successes:
+        flash(
+            f"Primary key fix applied to {len(successes)} "
+            f"table{'s' if len(successes) != 1 else ''}.",
+            "success",
+        )
+
+    for table_schema, table_name, message in failures:
+        flash(f"Primary key fix failed for `{table_schema}`.`{table_name}`: {message}", "error")
+
+    return redirect(redirect_target)
 
 
 @app.route("/admin/profile", methods=["GET", "POST"])
@@ -1122,6 +1291,12 @@ def shell_operations_page():
     except Exception as error:  # pragma: no cover - depends on runtime services
         schema_error = str(error)
 
+    dump_instance_enabled_event_count = None
+    try:
+        dump_instance_enabled_event_count = fetch_enabled_event_count(profile, credentials)
+    except Exception:  # pragma: no cover - depends on runtime services
+        dump_instance_enabled_event_count = None
+
     selected_schemas = request.form.getlist("schemas") if request.method == "POST" else request.args.getlist("schemas")
     selected_dump_option_profile_name = _request_text("dump_option_profile_name")
     selected_load_option_profile_name = _request_text("load_option_profile_name")
@@ -1146,6 +1321,22 @@ def shell_operations_page():
         get_option_profile("load", selected_load_option_profile_name) if selected_load_option_profile_name else None
     )
     option_profile_action = str(request.form.get("option_profile_action", "")).strip().lower() if request.method == "POST" else ""
+    validation_action = str(request.form.get("validation_action", "")).strip().lower() if request.method == "POST" else ""
+    dump_option_filter_catalog = {
+        "schemas": [],
+        "tables": [],
+        "users": [],
+        "events": [],
+        "routines": [],
+        "triggers": [],
+        "libraries": [],
+        "errors": {},
+    }
+    if shell_page == "option-profiles" and option_profile_kind == "dump":
+        try:
+            dump_option_filter_catalog = fetch_dump_filter_catalog(profile, credentials)
+        except Exception as error:  # pragma: no cover - depends on server privileges
+            dump_option_filter_catalog["errors"]["catalog"] = str(error)
 
     load_progress_default = _request_text("load_dump_progress_file")
     if not load_progress_default and load_pars:
@@ -1323,6 +1514,11 @@ def shell_operations_page():
                 flash(str(error), "error")
 
             form_state["load_dump_progress_file"] = normalize_progress_file_value(form_state["load_dump_progress_file"])
+        elif validation_action:
+            if validation_action != "dump-schemas":
+                flash("Unsupported validation action.", "error")
+            elif not selected_schemas:
+                flash("Select at least one schema before running validation.", "error")
         elif operation != "option-profiles":
             try:
                 if operation == "dump-instance":
@@ -1456,6 +1652,32 @@ def shell_operations_page():
         )
         load_option_profile_json = _format_option_profile_editor_json(load_profile_values)
 
+    dump_instance_validation = None
+    dump_schemas_validation = None
+    dump_instance_validation_scope = "All accessible schemas"
+    dump_schemas_validation_scope = f"Selected schemas ({len(selected_schemas)})" if selected_schemas else ""
+    dump_schemas_validation_scope_names = selected_schemas or user_schemas or None
+    show_dump_schemas_validation = validation_action == "dump-schemas" and bool(selected_schemas)
+
+    try:
+        dump_instance_validation = fetch_dump_validation_summary(
+            profile,
+            credentials,
+            schema_names=user_schemas or None,
+        )
+        if show_dump_schemas_validation:
+            if dump_schemas_validation_scope_names == (user_schemas or None):
+                dump_schemas_validation = dict(dump_instance_validation)
+            else:
+                dump_schemas_validation = fetch_dump_validation_summary(
+                    profile,
+                    credentials,
+                    schema_names=dump_schemas_validation_scope_names,
+                )
+    except Exception:  # pragma: no cover - depends on runtime services
+        dump_instance_validation = None
+        dump_schemas_validation = None
+
     operation_history = []
     if shell_page == "history":
         operation_history = list_mysqlsh_job_history(
@@ -1500,6 +1722,13 @@ def shell_operations_page():
         is_option_profiles_page=shell_page == "option-profiles",
         operation_history=operation_history,
         operation_result=operation_result,
+        dump_instance_enabled_event_count=dump_instance_enabled_event_count,
+        dump_instance_validation=dump_instance_validation,
+        dump_schemas_validation=dump_schemas_validation,
+        dump_instance_validation_scope=dump_instance_validation_scope,
+        dump_schemas_validation_scope=dump_schemas_validation_scope,
+        show_dump_schemas_validation=show_dump_schemas_validation,
+        dump_option_filter_catalog=dump_option_filter_catalog,
     )
 
 

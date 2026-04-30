@@ -7,12 +7,14 @@
 - Authenticates to MySQL with saved profiles and optional SSH tunneling
 - Shows SSH tunnel controls on the Login and Profile pages and only enables SSH connection fields when `Use SSH Tunnel` is checked
 - Runs a MySQL connection health check on the main application pages and redirects back to Login if the active connection is no longer valid
-- Shows MySQL overview details including `server_uuid`, GTID state, event scheduler status, visible events, and replication/applier errors when present
+- Shows MySQL overview details including `server_uuid`, GTID state, and replication/applier errors when present
+- Adds `Admin > DB Admin` with event controls and primary key auditing/fix actions for the current MySQL connection
 - Manages OCI Object Storage settings for namespace, bucket, and prefix selection
 - Creates and tracks Pre-Authenticated Requests (PARs) used by MySQL Shell operations
 - Lets you browse, create, rename, and delete managed Object Storage prefixes
 - Runs MySQL Shell `dumpInstance`, `dumpSchemas`, and `loadDump` jobs from the UI
 - Saves reusable dump and load option profiles so common Shell option sets can be applied without re-entering fields
+- Lets dump option profiles build include/exclude filters from selector-driven tabs for schemas, tables, users, events, routines, triggers, and libraries
 - Shows the generated MySQL Shell Python call using valid Python literals (`True` / `False`) and repo-relative `progressFile` paths when possible
 - Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, retry details, connection profile names, and cleanup actions for completed jobs
 - Uses an app-managed SSH tunnel for SSH-enabled MySQL Shell jobs and keeps that tunnel open for the full `mysqlsh` process
@@ -49,7 +51,8 @@
 5. Save Object Storage settings.
 6. Create a PAR for the dump/load target prefix.
 7. Open the `dumpInstance`, `dumpSchemas`, or `loadDump` tab on the Shell Operations screen, then optionally apply a saved dump or load option profile before running the job.
-8. Use the top-level History tab to reopen completed jobs, inspect retries/stdout/stderr, and clean up finished job files.
+8. Define reusable dump filters from `Option Profiles` when you want selector-driven include/exclude lists for schemas, tables, users, events, routines, triggers, or libraries.
+9. Use the top-level History tab to reopen completed jobs, inspect retries/stdout/stderr, and clean up finished job files.
 
 ## setup.sh Port Setup
 
@@ -73,13 +76,20 @@
 
 ## Overview and Operations
 
-- The Overview page has Environment, Events, Workflow, and Active PARs tabs.
+- The Overview page has Environment, Workflow, and Active PARs tabs.
 - Environment shows server host/version, `server_id`, `server_uuid`, `gtid_mode`, `gtid_executed`, `gtid_purged`, and schema counts for the current connection.
-- The Events tab shows event scheduler status plus visible events with enabled state, schedule, and last execution time.
 - Replication and applier panels filter out normal channels/workers and only render rows that currently have errors.
+- `Admin > DB Admin` has `Event Tab` and `Primary Key Check` tabs.
+- `Event Tab` shows event scheduler status, visible events, schedules, and enable/disable actions.
+- `Primary Key Check` shows database/table counters plus detail panels for tables with and without primary keys.
+- The primary key fix flow supports bulk row selection and applies one fix request across the selected tables.
+- When a selected table is partitioned, the automatic primary key fix includes the partition columns together with the `AUTO_INCREMENT` column or the generated invisible `my_row_id` column.
 - Shell Operations uses top-level `dumpInstance`, `dumpSchemas`, `loadDump`, `Option Profiles`, and `History` tabs.
-- The History tab is consolidated for the current MySQL username and shows which saved connection profile and database were used for each recorded job.
+- `dumpInstance` always shows validation counters for tables without primary keys, `ENGINE=InnoDB`, `ENGINE=Lakehouse`, `secondary_engine=rapid`, and enabled events.
+- `dumpSchemas` shows the same validation counters only after schemas are selected and the `Validation` action is run.
 - Dump and load option profiles are stored separately, so you can reuse common option sets without reselecting the PAR source/target.
+- Dump option profiles now include selector-driven filter tabs for schemas, tables, users, events, routines, triggers, and libraries, with mutually exclusive include/exclude placement per selected object.
+- The History tab is consolidated for the current MySQL username and shows which saved connection profile and database were used for each recorded job.
 - Finished jobs can be reopened later and cleaned up from the History view once they are no longer active.
 
 ## SSH Tunnel Behavior
@@ -95,7 +105,7 @@
 
 - `.runtime.env`, `.venv/`, `runtime/`, `tls/`, and `par_registry.json` are local runtime artifacts and are git-ignored.
 - `.runtime.env` stores the resolved embedded `MYSQLSH_BINARY` path used by the app and systemd services.
-- `profiles.json` is an editable local default file checked into the repo.
+- `profiles.json` is an editable local default file checked into the repo, but environment-specific SSH hosts, usernames, and private key paths should stay local and should not be committed back.
 - `object_storage.json` is intentionally local-only and git-ignored because it can contain sensitive tenancy, namespace, bucket, and folder metadata.
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.

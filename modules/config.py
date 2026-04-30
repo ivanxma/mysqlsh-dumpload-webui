@@ -68,6 +68,7 @@ NAV_GROUPS = [
         "label": "Admin",
         "items": [
             {"endpoint": "profile_page", "label": "Profile"},
+            {"endpoint": "db_admin_page", "label": "DB Admin"},
             {"endpoint": "object_storage_settings_page", "label": "Object Storage"},
         ],
     },
