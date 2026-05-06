@@ -87,9 +87,9 @@ For an OCI Compute deployment, create a Linux VM and let the instance bootstrap 
 
 1. Create an OCI Compute instance with a supported image such as Oracle Linux 9 or Ubuntu.
 2. Attach a public IP or provide private access through a bastion host.
-3. Add ingress rules for `TCP/22` and the app listener ports you plan to use such as `80` and `443`.
+3. Add ingress rules for `TCP/22` and the app listener port you plan to use such as `443`.
 4. In the instance creation flow, open the initialization or cloud-init script field and paste a script like the following.
-5. After the instance finishes provisioning, connect over SSH and check the generated `.runtime.env` plus the systemd services created by `setup.sh`. For the example below, the main unit is `mysql-shell-web-http.service`.
+5. After the instance finishes provisioning, connect over SSH and check the generated `.runtime.env` plus the systemd services created by `setup.sh`. For the example below, the main unit is `mysql-shell-web-https.service`.
 
 Example init script for Oracle Linux 9:
 
@@ -127,8 +127,10 @@ sudo -u "$APP_USER" env \
   HOST=0.0.0.0 \
   SERVICE_USER="$APP_USER" \
   SERVICE_GROUP="$APP_GROUP" \
-  bash ./setup.sh "$OS_FAMILY" http --http-port 80
+  bash ./setup.sh "$OS_FAMILY" https --https-port 443
 ```
+
+If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service.
 
 Adjust `APP_USER` and `OS_FAMILY` when you use Ubuntu instead of Oracle Linux:
 
