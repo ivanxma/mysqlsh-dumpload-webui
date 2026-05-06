@@ -859,6 +859,9 @@ Group=$service_group
 WorkingDirectory=$SCRIPT_DIR
 EnvironmentFile=-$RUNTIME_ENV_FILE
 ExecStart=$bash_bin $exec_script
+# Allow the non-root service user to bind to privileged ports such as 80/443.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=on-failure
 RestartSec=5
 
