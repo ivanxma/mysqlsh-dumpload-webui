@@ -25,7 +25,7 @@
 - `app.py`: Flask entrypoint and route handlers
 - `modules/`: MySQL connectivity, Object Storage helpers, session handling, and MySQL Shell script generation
 - `templates/` and `static/`: UI templates and styling
-- `setup.sh`: bootstrap script for Python environment, runtime config, and optional service setup
+- `setup.sh`: bootstrap script for Python environment, runtime config, optional service setup, and fresh-host repo bootstrap through `curl | sh`
 - `start_http.sh` / `start_https.sh`: local launch scripts
 - `profiles.json`: starter MySQL connection profiles
 - `object_storage.json`: local OCI Object Storage settings file created in the working copy and intentionally git-ignored
@@ -35,24 +35,113 @@
 ## Requirements
 
 - Python 3
-- Internet access during `./setup.sh` so the embedded MySQL Shell tarball can be downloaded
+- Internet access during bootstrap so the Git repo and embedded MySQL Shell tarball can be downloaded
+- `sudo` or root access when the host needs package installation, firewall changes, or systemd service setup
 - Network access from the app host to the target MySQL server
 - SSH private key access on the app host when using SSH-enabled profiles
 - OCI credentials available when using Object Storage features
 
-## Quick Start
+## Setup
 
-1. Run `./setup.sh`.
-   This downloads an embedded MySQL Shell Innovation tarball for the current macOS/Linux architecture into `runtime/mysqlsh/` and saves its path in `.runtime.env`.
-2. Start the app with `./start_http.sh` or `./start_https.sh`.
-3. Open the login page and sign in with a configured MySQL profile.
+### Existing Clone
+
+1. Clone the repository or work from an existing checkout.
+2. Run `./setup.sh`.
+   This creates `.venv/`, installs Python dependencies, downloads an embedded MySQL Shell Innovation tarball into `runtime/mysqlsh/`, and saves the resolved runtime settings in `.runtime.env`.
+3. Start the app with `./start_http.sh` or `./start_https.sh`.
+4. Open the login page and sign in with a configured MySQL profile.
    Enable `Use SSH Tunnel` only when the MySQL server is reached through a jump host; the SSH fields stay disabled otherwise.
-4. Protected pages re-test the current MySQL connection and return to Login if the session can no longer reach MySQL.
-5. Save Object Storage settings.
-6. Create a PAR for the dump/load target prefix.
-7. Open the `dumpInstance`, `dumpSchemas`, or `loadDump` tab on the Shell Operations screen, then optionally apply a saved dump or load option profile before running the job.
-8. Define reusable dump filters from `Option Profiles` when you want selector-driven include/exclude lists for schemas, tables, users, events, routines, triggers, or libraries.
-9. Use the top-level History tab to reopen completed jobs, inspect retries/stdout/stderr, and clean up finished job files.
+
+### Fresh Host Bootstrap With `curl | sh`
+
+Use this when the host does not already have a local repo checkout:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ol9 http --http-port 80
+```
+
+The streamed bootstrap path does the following before handing off to the repo-local `setup.sh`:
+
+- Installs `git` automatically when it is missing on Oracle Linux, Ubuntu, and macOS with Homebrew available
+- Clones `https://github.com/ivanxma/mysqlsh-dumpload-webui.git`
+- If the target clone directory already exists, renames it to `<folder>.<YYYYmmddHHMMSS>`
+- Re-runs the cloned `setup.sh` with the same arguments so the normal install flow continues
+
+Optional bootstrap overrides:
+
+- `BOOTSTRAP_REPO_URL`: clone from a different Git URL
+- `BOOTSTRAP_CLONE_DIR`: clone into a different folder name
+- `BOOTSTRAP_PARENT_DIR`: clone into a different parent directory
+
+Example:
+
+```sh
+BOOTSTRAP_PARENT_DIR="$HOME/apps" \
+BOOTSTRAP_CLONE_DIR=mysqlsh-dumpload-webui \
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ol9 both --http-port 80 --https-port 443
+```
+
+### OCI Compute Instance
+
+For an OCI Compute deployment, create a Linux VM and let the instance bootstrap itself from the Git repo during first boot.
+
+1. Create an OCI Compute instance with a supported image such as Oracle Linux 9 or Ubuntu.
+2. Attach a public IP or provide private access through a bastion host.
+3. Add ingress rules for `TCP/22` and the app listener ports you plan to use such as `80` and `443`.
+4. In the instance creation flow, open the initialization or cloud-init script field and paste a script like the following.
+5. After the instance finishes provisioning, connect over SSH and check the generated `.runtime.env` plus the systemd services created by `setup.sh`. For the example below, the main unit is `mysql-shell-web-http.service`.
+
+Example init script for Oracle Linux 9:
+
+```bash
+#!/bin/bash
+set -euxo pipefail
+
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git"
+APP_DIR="/home/opc/mysqlsh-dumpload-webui"
+APP_USER="opc"
+APP_GROUP="opc"
+OS_FAMILY="ol9"
+
+if command -v git >/dev/null 2>&1; then
+  :
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y git
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y git
+elif command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y git
+else
+  echo "git could not be installed automatically" >&2
+  exit 1
+fi
+
+if [ -d "$APP_DIR" ]; then
+  mv "$APP_DIR" "${APP_DIR}.$(date +%Y%m%d%H%M%S)"
+fi
+
+sudo -u "$APP_USER" git clone "$APP_REPO" "$APP_DIR"
+cd "$APP_DIR"
+sudo -u "$APP_USER" env \
+  HOST=0.0.0.0 \
+  SERVICE_USER="$APP_USER" \
+  SERVICE_GROUP="$APP_GROUP" \
+  bash ./setup.sh "$OS_FAMILY" http --http-port 80
+```
+
+Adjust `APP_USER` and `OS_FAMILY` when you use Ubuntu instead of Oracle Linux:
+
+- Oracle Linux 9: `APP_USER=opc`, `APP_GROUP=opc`, `OS_FAMILY=ol9`
+- Ubuntu: `APP_USER=ubuntu`, `APP_GROUP=ubuntu`, `OS_FAMILY=ubuntu`
+
+Once setup finishes, open the app in a browser and continue with the normal workflow:
+
+1. Save Object Storage settings.
+2. Create a PAR for the dump/load target prefix.
+3. Open the `dumpInstance`, `dumpSchemas`, or `loadDump` tab on the Shell Operations screen, then optionally apply a saved dump or load option profile before running the job.
+4. Define reusable dump filters from `Option Profiles` when you want selector-driven include/exclude lists for schemas, tables, users, events, routines, triggers, or libraries.
+5. Use the top-level History tab to reopen completed jobs, inspect retries, and clean up finished job files.
 
 ## setup.sh Port Setup
 
@@ -63,6 +152,8 @@
   - `./setup.sh ubuntu both --http-port 8080 --https-port 8443`
 - Environment form:
   - `HTTP_PORT=8080 HTTPS_PORT=8443 ./setup.sh ol9 both`
+- Streamed bootstrap form:
+  - `curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ubuntu both --http-port 8080 --https-port 8443`
 - In an interactive run, `setup.sh` prompts for the port or ports required by the selected deploy mode:
   - `http`: prompts for the HTTP port
   - `https`: prompts for the HTTPS port

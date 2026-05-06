@@ -1,4 +1,157 @@
 #!/usr/bin/env bash
+
+# When setup.sh is streamed into a shell there is no file-backed script path, so
+# clone the repo first and then re-run the on-disk setup.sh with bash.
+if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
+  set -eu
+
+  bootstrap_print() {
+    printf '%s\n' "$*" >&2
+  }
+
+  bootstrap_has_command() {
+    command -v "$1" >/dev/null 2>&1
+  }
+
+  bootstrap_run_as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+      "$@"
+    elif bootstrap_has_command sudo; then
+      sudo "$@"
+    else
+      bootstrap_print "This step requires root privileges. Re-run as root or install sudo first."
+      return 1
+    fi
+  }
+
+  bootstrap_detect_os_family() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+      printf '%s\n' "macos"
+      return 0
+    fi
+
+    if [ ! -r /etc/os-release ]; then
+      bootstrap_print "Unable to detect the operating system. Install git manually and rerun setup."
+      return 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    case "$(printf '%s' "${ID:-unknown}" | tr '[:upper:]' '[:lower:]'):${VERSION_ID%%.*}" in
+      ol:8|oraclelinux:8) printf '%s\n' "ol8" ;;
+      ol:9|oraclelinux:9) printf '%s\n' "ol9" ;;
+      ubuntu:*) printf '%s\n' "ubuntu" ;;
+      *)
+        bootstrap_print "Unsupported operating system: ${ID:-unknown} ${VERSION_ID:-unknown}. Install git manually and rerun setup."
+        return 1
+        ;;
+    esac
+  }
+
+  bootstrap_install_git() {
+    if bootstrap_has_command git; then
+      return 0
+    fi
+
+    bootstrap_os_family="$(bootstrap_detect_os_family)" || return 1
+    bootstrap_print "git was not found. Installing git for ${bootstrap_os_family}."
+
+    case "$bootstrap_os_family" in
+      ubuntu)
+        bootstrap_run_as_root apt-get update
+        bootstrap_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y git
+        ;;
+      ol8|ol9)
+        if bootstrap_has_command dnf; then
+          bootstrap_run_as_root dnf install -y git
+        elif bootstrap_has_command yum; then
+          bootstrap_run_as_root yum install -y git
+        else
+          bootstrap_print "Neither dnf nor yum was found. Install git manually and rerun setup."
+          return 1
+        fi
+        ;;
+      macos)
+        if bootstrap_has_command brew; then
+          brew install git
+        else
+          if bootstrap_has_command xcode-select; then
+            bootstrap_print "git was not found. Triggering Xcode Command Line Tools installation."
+            xcode-select --install >/dev/null 2>&1 || true
+          fi
+          bootstrap_print "Install Xcode Command Line Tools or Homebrew, then rerun setup."
+          return 1
+        fi
+        ;;
+    esac
+
+    if ! bootstrap_has_command git; then
+      bootstrap_print "git installation did not complete successfully."
+      return 1
+    fi
+  }
+
+  bootstrap_timestamp() {
+    date '+%Y%m%d%H%M%S'
+  }
+
+  bootstrap_prepare_target_dir() {
+    if [ ! -e "$BOOTSTRAP_TARGET_DIR" ]; then
+      return 0
+    fi
+
+    BOOTSTRAP_BACKUP_DIR="${BOOTSTRAP_TARGET_DIR}.$(bootstrap_timestamp)"
+    while [ -e "$BOOTSTRAP_BACKUP_DIR" ]; do
+      sleep 1
+      BOOTSTRAP_BACKUP_DIR="${BOOTSTRAP_TARGET_DIR}.$(bootstrap_timestamp)"
+    done
+
+    bootstrap_print "Renaming existing $BOOTSTRAP_TARGET_DIR to $BOOTSTRAP_BACKUP_DIR"
+    mv "$BOOTSTRAP_TARGET_DIR" "$BOOTSTRAP_BACKUP_DIR"
+  }
+
+  bootstrap_exec_cloned_setup() {
+    if ! bootstrap_has_command bash; then
+      bootstrap_print "bash is required to continue after cloning."
+      return 1
+    fi
+
+    exec bash "$BOOTSTRAP_TARGET_DIR/setup.sh" "$@"
+  }
+
+  if [ -n "${0:-}" ] && [ -f "$0" ] && [ -r "$0" ]; then
+    if ! bootstrap_has_command bash; then
+      bootstrap_print "bash is required to run setup.sh."
+      exit 1
+    fi
+
+    exec bash "$0" "$@"
+  fi
+
+  BOOTSTRAP_REPO_URL="${BOOTSTRAP_REPO_URL:-https://github.com/ivanxma/mysqlsh-dumpload-webui.git}"
+  bootstrap_repo_name="${BOOTSTRAP_REPO_URL##*/}"
+  bootstrap_repo_name="${bootstrap_repo_name%.git}"
+  BOOTSTRAP_CLONE_DIR="${BOOTSTRAP_CLONE_DIR:-$bootstrap_repo_name}"
+  BOOTSTRAP_PARENT_DIR="${BOOTSTRAP_PARENT_DIR:-$(pwd -P)}"
+  BOOTSTRAP_TARGET_DIR="${BOOTSTRAP_PARENT_DIR%/}/$BOOTSTRAP_CLONE_DIR"
+
+  bootstrap_install_git
+
+  mkdir -p "$BOOTSTRAP_PARENT_DIR"
+  cd "$BOOTSTRAP_PARENT_DIR"
+  bootstrap_prepare_target_dir
+
+  bootstrap_print "Cloning $BOOTSTRAP_REPO_URL into $BOOTSTRAP_TARGET_DIR"
+  git clone "$BOOTSTRAP_REPO_URL" "$BOOTSTRAP_TARGET_DIR"
+
+  if [ ! -r "$BOOTSTRAP_TARGET_DIR/setup.sh" ]; then
+    bootstrap_print "The cloned repository does not contain setup.sh at $BOOTSTRAP_TARGET_DIR/setup.sh"
+    exit 1
+  fi
+
+  bootstrap_exec_cloned_setup "$@"
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +187,7 @@ print_usage() {
 Usage:
   ./setup.sh [os_family] [deploy_mode] [http_port] [https_port]
   ./setup.sh [os_family] [deploy_mode] [--http-port PORT] [--https-port PORT]
+  curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- [args]
 
 Arguments:
   os_family    ol8 | ol9 | ubuntu | macos
@@ -44,6 +198,9 @@ Environment overrides:
   SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
   MYSQLSH_BINARY, MYSQLSH_EMBEDDED_VERSION, MYSQLSH_RUNTIME_DIR,
   MYSQLSH_DOWNLOADS_DIR
+
+Bootstrap overrides for curl | sh:
+  BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
 EOF
 }
 
