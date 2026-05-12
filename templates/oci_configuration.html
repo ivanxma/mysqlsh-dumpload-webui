@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Admin</p>
+  <h2>OCI Configuration</h2>
+  <p>Configure the OCI profile and Object Storage target used by PAR Manager, Folders, and MySQL Shell workflows.</p>
+</section>
+
+<section class="tab-shell" data-tab-shell data-default-tab="oci-config">
+  <div class="tab-bar" role="tablist">
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="oci-config">OCI Config</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="oci-object-storage">Object Storage</button>
+    <button class="tab-link" type="button" role="tab" data-tab-link data-tab-target="oci-review">Review</button>
+  </div>
+
+  <section class="tab-panel" id="oci-config" role="tabpanel" data-tab-panel hidden>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>OCI Config</h3>
+          <p class="help-text">Choose an existing OCI config file or store a local HeatWave_Demo profile for this application.</p>
+        </div>
+      </div>
+
+      <dl class="detail-list detail-list-inline">
+        <div>
+          <dt>Config File</dt>
+          <dd>{{ oci_config_status.effective_file or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Profile</dt>
+          <dd>{{ oci_config_status.active_profile or "HeatWave_Demo" }}</dd>
+        </div>
+        <div>
+          <dt>Readable</dt>
+          <dd>{{ "Yes" if oci_config_status.exists else "No" }}</dd>
+        </div>
+      </dl>
+
+      <div class="oci-config-layout modal-section">
+        <aside class="option-group oci-config-mode-panel">
+          <h4>Config Source</h4>
+          <label class="checkbox-field">
+            <input type="radio" name="oci_config_mode" value="existing" data-oci-config-mode {% if object_storage_config.config_source != "local" %}checked{% endif %}>
+            <span>Define config file</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="radio" name="oci_config_mode" value="local" data-oci-config-mode {% if object_storage_config.config_source == "local" %}checked{% endif %}>
+            <span>Store in local folder</span>
+          </label>
+        </aside>
+
+        <article class="setup-subpanel oci-config-form-panel" data-oci-config-section="existing">
+          <h3>Existing Config</h3>
+          <form method="post" class="form-grid">
+            <input type="hidden" name="active_tab" value="oci-config">
+            <input type="hidden" name="config_source" value="existing">
+            <label>
+              Config file
+              <input type="text" name="existing_config_file" value="{{ oci_config_status.configured_file or '~/.oci/config' }}">
+            </label>
+            <label>
+              Profile
+              <input type="text" name="existing_config_profile" value="{{ object_storage_config.config_profile or 'HeatWave_Demo' }}" list="existing-oci-profile-list">
+              <datalist id="existing-oci-profile-list">
+                {% for profile_name in oci_config_status.existing_profiles %}
+                <option value="{{ profile_name }}"></option>
+                {% endfor %}
+              </datalist>
+            </label>
+            <label>
+              Region
+              <input type="text" name="existing_region" value="{{ object_storage_config.region }}">
+            </label>
+            <div class="form-actions">
+              <button class="button primary" type="submit" name="setup_action" value="use_existing_oci_config">Use Existing Config</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="setup-subpanel oci-config-form-panel" data-oci-config-section="local">
+          <h3>Stored Local Config</h3>
+          <form method="post" enctype="multipart/form-data" class="form-grid">
+            <input type="hidden" name="active_tab" value="oci-config">
+            <input type="hidden" name="config_source" value="local">
+            <div class="field-row field-row-two">
+              <label>
+                Profile
+                <input type="text" name="local_config_profile" value="{{ object_storage_config.config_profile or 'HeatWave_Demo' }}" list="local-oci-profile-list">
+                <datalist id="local-oci-profile-list">
+                  {% for profile_name in oci_config_status.local_profiles %}
+                  <option value="{{ profile_name }}"></option>
+                  {% endfor %}
+                </datalist>
+              </label>
+              <label>
+                Region
+                <input type="text" name="local_region" value="{{ object_storage_config.region }}">
+              </label>
+            </div>
+            <label>
+              Tenancy OCID
+              <input type="text" name="tenancy_id" placeholder="ocid1.tenancy.oc1..">
+            </label>
+            <label>
+              User OCID
+              <input type="text" name="user_id" placeholder="ocid1.user.oc1..">
+            </label>
+            <label>
+              Fingerprint
+              <input type="text" name="fingerprint" placeholder="00:00:00:...">
+            </label>
+            <label>
+              Private key
+              <input type="file" name="private_key_file" accept=".pem,.key,.txt">
+            </label>
+            <div class="form-actions">
+              <button class="button primary" type="submit" name="setup_action" value="store_local_oci_config">Store Local Config</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </section>
+  </section>
+
+  <section class="tab-panel" id="oci-object-storage" role="tabpanel" data-tab-panel hidden>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Object Storage</h3>
+          <p class="help-text">These values define where PAR Manager and Shell operations read and write dumps.</p>
+        </div>
+      </div>
+      <dl class="detail-list detail-list-inline">
+        <div>
+          <dt>Bucket</dt>
+          <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Namespace</dt>
+          <dd>{{ object_storage_config.namespace or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Root Prefix</dt>
+          <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
+        </div>
+      </dl>
+
+      <form method="post" class="form-grid modal-section">
+        <input type="hidden" name="active_tab" value="oci-object-storage">
+        <input type="hidden" name="config_source" value="{{ object_storage_config.config_source }}">
+        <input type="hidden" name="config_file" value="{{ object_storage_config.config_file }}">
+        <input type="hidden" name="config_profile" value="{{ object_storage_config.config_profile }}">
+        <div class="field-grid">
+          <label>
+            Region Override
+            <input name="region" type="text" value="{{ object_storage_config.region }}">
+          </label>
+          <label>
+            Bucket Name
+            <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
+          </label>
+          <label>
+            Namespace
+            <input name="namespace" type="text" value="{{ object_storage_config.namespace }}">
+          </label>
+          <label>
+            Root Prefix
+            <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="button primary" type="submit" name="setup_action" value="save_config">Save Bucket Settings</button>
+        </div>
+      </form>
+    </section>
+  </section>
+
+  <section class="tab-panel" id="oci-review" role="tabpanel" data-tab-panel hidden>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Review</h3>
+          <p class="help-text">Confirm the effective OCI config and Object Storage target.</p>
+        </div>
+      </div>
+      <dl class="detail-list review-grid">
+        <div>
+          <dt>Config Source</dt>
+          <dd>{{ "Store in local folder" if object_storage_config.config_source == "local" else "Define config file" }}</dd>
+        </div>
+        <div>
+          <dt>Effective Config File</dt>
+          <dd>{{ oci_config_status.effective_file or "-" }}</dd>
+        </div>
+        <div>
+          <dt>OCI Profile</dt>
+          <dd>{{ object_storage_config.config_profile or "HeatWave_Demo" }}</dd>
+        </div>
+        <div>
+          <dt>Readable</dt>
+          <dd>{{ "Yes" if oci_config_status.exists else "No" }}</dd>
+        </div>
+        <div>
+          <dt>Region Override</dt>
+          <dd>{{ object_storage_config.region or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Namespace</dt>
+          <dd>{{ object_storage_config.namespace or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Bucket</dt>
+          <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Root Prefix</dt>
+          <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
+        </div>
+      </dl>
+    </section>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const radios = Array.from(document.querySelectorAll("[data-oci-config-mode]"));
+    const sections = Array.from(document.querySelectorAll("[data-oci-config-section]"));
+    if (!radios.length || !sections.length) {
+      return;
+    }
+    const applyMode = () => {
+      const active = radios.find((radio) => radio.checked)?.value || "existing";
+      sections.forEach((section) => {
+        section.hidden = section.dataset.ociConfigSection !== active;
+      });
+    };
+    radios.forEach((radio) => radio.addEventListener("change", applyMode));
+    applyMode();
+  })();
+</script>
+{% endblock %}

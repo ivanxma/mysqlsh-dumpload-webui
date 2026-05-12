@@ -467,6 +467,14 @@ pre,
   align-items: end;
 }
 
+.field-row-two,
+.field-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
 .form-section {
   grid-column: 1 / -1;
   padding: 16px 18px;
@@ -603,6 +611,11 @@ pre,
 
 .detail-list.compact {
   gap: 10px;
+}
+
+.detail-list-inline {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 18px;
 }
 
 .oci-status-list {
@@ -811,6 +824,35 @@ tbody tr:last-child td {
   padding: 18px 0;
 }
 
+.modal-section {
+  margin-top: 18px;
+}
+
+.oci-config-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.35fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.option-group,
+.setup-subpanel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 253, 249, 0.88);
+}
+
+.option-group h4,
+.setup-subpanel h3 {
+  margin: 0 0 14px;
+}
+
+.oci-config-mode-panel {
+  display: grid;
+  gap: 12px;
+}
+
 .auth-shell {
   max-width: 960px;
   margin: 0 auto;
@@ -1011,6 +1053,9 @@ tbody tr:last-child td {
 
   .form-grid,
   .field-row,
+  .field-row-two,
+  .field-grid,
+  .oci-config-layout,
   .option-grid,
   .option-grid.two-column {
     grid-template-columns: 1fr;

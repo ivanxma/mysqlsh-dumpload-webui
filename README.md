@@ -9,7 +9,7 @@
 - Runs a MySQL connection health check on the main application pages and redirects back to Login if the active connection is no longer valid
 - Shows MySQL overview details including `server_uuid`, GTID state, and replication/applier errors when present
 - Adds `Admin > DB Admin` with event controls and primary key auditing/fix actions for the current MySQL connection
-- Manages OCI configuration, including existing OCI config files or an application-local config, plus namespace, bucket, and prefix selection
+- Adds `Admin > OCI Configuration` for OCI config setup, Object Storage bucket scope, and an effective settings review
 - Creates and tracks Pre-Authenticated Requests (PARs) used by MySQL Shell operations
 - Lets you browse, create, rename, and delete managed Object Storage prefixes
 - Runs MySQL Shell `dumpInstance`, `dumpSchemas`, and `loadDump` jobs from the UI
@@ -25,12 +25,12 @@
 
 - `app.py`: Flask entrypoint and route handlers
 - `mysql_shell_web_update_worker.py`: background updater used by the Admin update page
-- `modules/`: MySQL connectivity, Object Storage helpers, session handling, and MySQL Shell script generation
+- `modules/`: MySQL connectivity, OCI configuration, Object Storage helpers, session handling, and MySQL Shell script generation
 - `templates/` and `static/`: UI templates and styling
 - `setup.sh`: bootstrap script for Python environment, runtime config, optional service setup, and fresh-host repo bootstrap through `curl | sh`
 - `start_http.sh` / `start_https.sh`: local launch scripts
 - `profiles.json`: starter MySQL connection profiles
-- `object_storage.json`: local OCI configuration and Object Storage scope file created in the working copy and intentionally git-ignored
+- `object_storage.json`: local OCI configuration mode and Object Storage scope file created in the working copy and intentionally git-ignored
 - `mysqlsh_option_profiles.json`: dump/load option profile store created on first use
 - `runtime/`: embedded `mysqlsh`, progress files, and background job state
 
@@ -240,6 +240,23 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - The History tab is consolidated for the current MySQL username and shows which saved connection profile and database were used for each recorded job.
 - Finished jobs can be reopened later and cleaned up from the History view once they are no longer active.
 
+## OCI Configuration
+
+Use `Admin > OCI Configuration` to manage the OCI settings used by PAR Manager, Folders, and MySQL Shell dump/load workflows. The module is served from `/admin/oci-configuration`; the previous `/admin/object-storage` route redirects there for compatibility.
+
+The page uses three tabs:
+
+- `OCI Config`: choose the OCI configuration source with the left-side radio panel.
+- `Object Storage`: set the region override, namespace, bucket name, and root prefix.
+- `Review`: confirm the effective config file, active profile, readability status, and bucket target.
+
+The `OCI Config` tab supports two modes:
+
+- `Define config file`: reference an existing OCI config file, usually `~/.oci/config`, and select or enter the profile name. The default profile name is `HeatWave_Demo`.
+- `Store in local folder`: enter the profile, region, tenancy OCID, user OCID, and fingerprint, then upload the OCI API private key file. The app writes `runtime/oci/config` and stores the uploaded key beside it with restricted file permissions.
+
+The Object Storage bucket settings remain local to the checkout in `object_storage.json`. The app expands the selected config source at runtime so downstream Object Storage and MySQL Shell flows use the same effective OCI profile.
+
 ## SSH Tunnel Behavior
 
 - Saved profiles can define a jump host, SSH user, SSH port, and private key path.
@@ -259,7 +276,7 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.
 - `runtime/jobs/` stores background job metadata plus `stdout`/`stderr` logs for each Shell operation.
-- `runtime/oci/config` stores the application-local OCI config when `Admin > OCI Configuration` is set to `Application Local Config`.
+- `runtime/oci/config` stores the application-local OCI config when `Admin > OCI Configuration` is set to `Store in local folder`.
 - `loadDump` operations using PAR URLs require a progress file; the app pre-fills a path under `runtime/progress/` and renders it as a relative path when it lives under the repo root.
 
 ## Admin Auto-Update

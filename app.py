@@ -57,11 +57,11 @@ from modules.option_profiles import (
     save_option_profile,
 )
 from modules.object_storage import (
-    build_oci_config_status,
     create_managed_folder,
     create_par_record,
     delete_folder,
     delete_par_record,
+    effective_oci_config_file,
     ensure_object_storage_store,
     ensure_par_store,
     format_datetime_local,
@@ -75,8 +75,12 @@ from modules.object_storage import (
     normalize_relative_prefix,
     parent_relative_prefix,
     rename_folder,
-    save_local_oci_config_text,
     save_object_storage_config,
+)
+from modules.oci_configuration import (
+    build_oci_config_status,
+    save_local_oci_config_text,
+    store_local_oci_config_from_upload,
 )
 from modules.profiles import (
     ensure_profile_store,
@@ -1314,27 +1318,59 @@ def profile_page():
     )
 
 
-@app.route("/admin/object-storage", methods=["GET", "POST"])
+@app.route("/admin/oci-configuration", methods=["GET", "POST"])
 @login_required
-def object_storage_settings_page():
+def oci_configuration_page():
     config = load_object_storage_config()
     if request.method == "POST":
+        action = str(request.form.get("setup_action", "save_config")).strip()
         merged_payload = dict(config)
         merged_payload.update(request.form.to_dict())
         merged_payload["managed_folders"] = config.get("managed_folders", [])
-        if str(merged_payload.get("config_source", "")).strip().lower() == "local":
-            save_local_oci_config_text(request.form.get("local_config_text", ""))
-        config = normalize_object_storage(merged_payload)
-        save_object_storage_config(config)
-        flash("OCI configuration saved.", "success")
-        return redirect(url_for("object_storage_settings_page"))
+
+        try:
+            if action == "use_existing_oci_config":
+                merged_payload["config_source"] = "existing"
+                merged_payload["config_file"] = request.form.get("existing_config_file", "")
+                merged_payload["config_profile"] = request.form.get("existing_config_profile", "")
+                merged_payload["region"] = request.form.get("existing_region", "")
+                config = normalize_object_storage(merged_payload)
+                save_object_storage_config(config)
+                flash("Updated the OCI config file reference.", "success")
+            elif action == "store_local_oci_config":
+                local_config = store_local_oci_config_from_upload(
+                    request.form,
+                    request.files.get("private_key_file"),
+                )
+                merged_payload.update(local_config)
+                config = normalize_object_storage(merged_payload)
+                save_object_storage_config(config)
+                flash("Stored OCI config and private key in the app-local runtime folder.", "success")
+            else:
+                if (
+                    str(merged_payload.get("config_source", "")).strip().lower() == "local"
+                    and "local_config_text" in request.form
+                ):
+                    save_local_oci_config_text(request.form.get("local_config_text", ""))
+                config = normalize_object_storage(merged_payload)
+                save_object_storage_config(config)
+                flash("OCI configuration saved.", "success")
+        except Exception as error:
+            flash(str(error), "error")
+        return redirect(url_for("oci_configuration_page"))
 
     return render_dashboard(
-        "object_storage_settings.html",
+        "oci_configuration.html",
         page_title="OCI Configuration",
         object_storage_config=config,
-        oci_config_status=build_oci_config_status(config),
+        oci_config_status=build_oci_config_status(config, effective_oci_config_file(config)),
     )
+
+
+@app.route("/admin/object-storage", methods=["GET", "POST"])
+@login_required
+def object_storage_settings_page():
+    return redirect(url_for("oci_configuration_page"))
 
 
 @app.route("/admin/update")

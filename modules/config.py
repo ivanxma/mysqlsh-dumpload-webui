@@ -72,7 +72,7 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "db_admin_page", "label": "DB Admin"},
-            {"endpoint": "object_storage_settings_page", "label": "OCI Configuration"},
+            {"endpoint": "oci_configuration_page", "label": "OCI Configuration"},
             {"endpoint": "update_mysql_shell_web_page", "label": "Update MySQL Shell Web"},
         ],
     },
