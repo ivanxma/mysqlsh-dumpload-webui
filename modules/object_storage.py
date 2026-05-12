@@ -163,15 +163,19 @@ def build_oci_config_status(config):
     effective_file = effective_oci_config_file(config)
     expanded_file = os.path.expanduser(effective_file)
     profiles = list_oci_config_profiles(effective_file)
+    existing_file = str(config.get("config_file", "")).strip() or DEFAULT_OBJECT_STORAGE["config_file"]
+    local_file = str(LOCAL_OCI_CONFIG_FILE)
     return {
         "config_source": _normalize_config_source(config.get("config_source")),
-        "configured_file": str(config.get("config_file", "")).strip(),
+        "configured_file": existing_file,
         "effective_file": effective_file,
         "expanded_file": expanded_file,
         "exists": os.path.exists(expanded_file),
         "profiles": profiles,
+        "existing_profiles": list_oci_config_profiles(existing_file),
+        "local_profiles": list_oci_config_profiles(local_file),
         "active_profile": str(config.get("config_profile", "") or DEFAULT_OBJECT_STORAGE["config_profile"]),
-        "local_config_file": str(LOCAL_OCI_CONFIG_FILE),
+        "local_config_file": local_file,
         "local_config_text": read_local_oci_config_text(),
     }
 

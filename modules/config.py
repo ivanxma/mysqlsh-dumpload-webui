@@ -36,7 +36,7 @@ DEFAULT_OBJECT_STORAGE = {
     "namespace": "",
     "bucket_name": "",
     "bucket_prefix": "",
-    "config_profile": "DEFAULT",
+    "config_profile": "HeatWave_Demo",
     "config_file": "~/.oci/config",
     "managed_folders": [],
 }

@@ -414,6 +414,41 @@ pre,
   line-height: 1.25;
 }
 
+.radio-card-stack {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.radio-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 249, 0.88);
+  cursor: pointer;
+}
+
+.radio-card input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.radio-card strong,
+.radio-card small {
+  display: block;
+}
+
+.radio-card small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .field-inline-note {
   color: var(--muted);
   font-size: 0.88em;
@@ -568,6 +603,14 @@ pre,
 
 .detail-list.compact {
   gap: 10px;
+}
+
+.oci-status-list {
+  margin-top: 18px;
+}
+
+.review-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .detail-list div {
