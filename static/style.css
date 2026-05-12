@@ -1121,6 +1121,16 @@ tbody tr:last-child td {
   color: var(--danger);
 }
 
+.history-job-id-column,
+.history-job-id-cell {
+  width: 24rem;
+  min-width: 24rem;
+}
+
+.history-job-id-cell code {
+  white-space: nowrap;
+}
+
 .history-action-row {
   align-items: center;
 }

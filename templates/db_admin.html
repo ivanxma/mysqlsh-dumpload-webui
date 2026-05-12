@@ -40,8 +40,26 @@
     </div>
 
     {% if db_admin_overview.events %}
+    <div class="table-toolbar">
+      <div>
+        <h3>Events</h3>
+      </div>
+      <div class="table-toolbar-actions">
+        <button
+          class="button secondary icon-button"
+          type="button"
+          data-download-table
+          data-download-table-id="db-admin-events-table"
+          data-download-filename="db-admin-events.csv"
+          aria-label="Download events"
+          title="Download events"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        </button>
+      </div>
+    </div>
     <div class="table-wrap">
-      <table>
+      <table id="db-admin-events-table" class="data-table">
         <thead>
           <tr>
             <th>Schema</th>
@@ -49,7 +67,7 @@
             <th>Enabled</th>
             <th>Schedule</th>
             <th>Last Executed</th>
-            <th>Actions</th>
+            <th data-download-skip>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -60,19 +78,23 @@
             <td><span class="badge {{ item.status_badge_class }}">{{ item.status }}</span></td>
             <td>{{ item.schedule }}</td>
             <td>{{ item.last_executed or "-" }}</td>
-            <td>
+            <td data-download-skip>
               <div class="table-action-row">
                 <form method="post" action="{{ url_for('db_admin_event_toggle') }}" class="inline-form">
                   <input type="hidden" name="event_schema" value="{{ item.event_schema }}">
                   <input type="hidden" name="event_name" value="{{ item.event_name }}">
                   <input type="hidden" name="event_action" value="enable">
-                  <button class="button" type="submit" {% if item.is_enabled %}disabled{% endif %}>Enable</button>
+                  <button class="button icon-button" type="submit" {% if item.is_enabled %}disabled{% endif %} aria-label="Enable {{ item.event_schema }}.{{ item.event_name }}" title="Enable">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7Z"></path></svg>
+                  </button>
                 </form>
                 <form method="post" action="{{ url_for('db_admin_event_toggle') }}" class="inline-form">
                   <input type="hidden" name="event_schema" value="{{ item.event_schema }}">
                   <input type="hidden" name="event_name" value="{{ item.event_name }}">
                   <input type="hidden" name="event_action" value="disable">
-                  <button class="button" type="submit" {% if item.is_disabled %}disabled{% endif %}>Disable</button>
+                  <button class="button secondary icon-button" type="submit" {% if item.is_disabled %}disabled{% endif %} aria-label="Disable {{ item.event_schema }}.{{ item.event_name }}" title="Disable">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6z"></path><path d="M14 5h4v14h-4z"></path></svg>
+                  </button>
                 </form>
               </div>
             </td>
@@ -132,10 +154,27 @@
       {% endif %}
 
       <section class="panel db-admin-detail-panel" id="pk-databases" data-pk-panel hidden>
-        <h3>Databases</h3>
+        <div class="table-toolbar">
+          <div>
+            <h3>Databases</h3>
+          </div>
+          <div class="table-toolbar-actions">
+            <button
+              class="button secondary icon-button"
+              type="button"
+              data-download-table
+              data-download-table-id="pk-databases-table"
+              data-download-filename="primary-key-databases.csv"
+              aria-label="Download databases"
+              title="Download databases"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+            </button>
+          </div>
+        </div>
         {% if pk_check.databases %}
         <div class="table-wrap">
-          <table>
+          <table id="pk-databases-table" class="data-table">
             <thead>
               <tr>
                 <th>Schema</th>
@@ -164,10 +203,27 @@
       </section>
 
       <section class="panel db-admin-detail-panel" id="pk-with-primary-key" data-pk-panel hidden>
-        <h3>Tables With Primary Key</h3>
+        <div class="table-toolbar">
+          <div>
+            <h3>Tables With Primary Key</h3>
+          </div>
+          <div class="table-toolbar-actions">
+            <button
+              class="button secondary icon-button"
+              type="button"
+              data-download-table
+              data-download-table-id="pk-with-primary-key-table"
+              data-download-filename="tables-with-primary-key.csv"
+              aria-label="Download tables with primary key"
+              title="Download tables with primary key"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+            </button>
+          </div>
+        </div>
         {% if pk_check.tables_with_primary_key %}
         <div class="table-wrap">
-          <table>
+          <table id="pk-with-primary-key-table" class="data-table">
             <thead>
               <tr>
                 <th>Schema</th>
@@ -206,20 +262,33 @@
               <h3>Tables Without Primary Key</h3>
               <p class="help-text">Select one or more tables, then apply the requested fix in one pass. Tables that already have an AUTO_INCREMENT column will reuse that column for the PRIMARY KEY.</p>
             </div>
-            <div class="panel-header-actions">
+            <div class="panel-header-actions table-toolbar-actions">
               {% if pk_check.tables_without_primary_key_count %}
               <span class="badge warn">Action Needed</span>
               {% endif %}
               <span class="help-text" data-pk-selected-count>0 selected</span>
-              <button class="button" type="submit" data-pk-fix-button>Apply Fix</button>
+              <button class="button icon-button" type="submit" data-pk-fix-button aria-label="Apply primary key fix" title="Apply fix">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+              </button>
+              <button
+                class="button secondary icon-button"
+                type="button"
+                data-download-table
+                data-download-table-id="pk-without-primary-key-table"
+                data-download-filename="tables-without-primary-key.csv"
+                aria-label="Download tables without primary key"
+                title="Download tables without primary key"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+              </button>
             </div>
           </div>
         {% if pk_check.tables_without_primary_key %}
         <div class="table-wrap">
-          <table>
+          <table id="pk-without-primary-key-table" class="data-table">
             <thead>
               <tr>
-                <th class="table-select-cell">
+                <th class="table-select-cell" data-download-skip>
                   <input
                     type="checkbox"
                     data-pk-select-all
@@ -235,7 +304,7 @@
             <tbody>
               {% for item in pk_check.tables_without_primary_key %}
               <tr>
-                <td class="table-select-cell">
+                <td class="table-select-cell" data-download-skip>
                   <input
                     type="checkbox"
                     name="selected_tables"

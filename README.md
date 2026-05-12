@@ -8,7 +8,7 @@
 - Shows SSH tunnel controls on the Login and Profile pages and only enables SSH connection fields when `Use SSH Tunnel` is checked
 - Runs a MySQL connection health check on the main application pages and redirects back to Login if the active connection is no longer valid
 - Shows MySQL overview details including `server_uuid`, GTID state, and replication/applier errors when present
-- Adds `Admin > DB Admin` with event controls and primary key auditing/fix actions for the current MySQL connection
+- Adds `Admin > DB Admin` with table-style event controls, downloadable primary-key reports, and selected-row primary-key fix actions for the current MySQL connection
 - Adds `Admin > OCI Configuration` for OCI config setup, Object Storage bucket scope, and an effective settings review
 - Creates and tracks Pre-Authenticated Requests (PARs) used by MySQL Shell operations
 - Lets you browse, create, rename, delete, and download managed Object Storage prefix and PAR tables with selected-row actions
@@ -16,7 +16,7 @@
 - Saves reusable dump and load option profiles so common Shell option sets can be applied without re-entering fields
 - Lets dump option profiles build include/exclude filters from selector-driven tabs for schemas, tables, users, events, routines, triggers, and libraries
 - Shows the generated MySQL Shell Python call using valid Python literals (`True` / `False`) and repo-relative `progressFile` paths when possible
-- Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, retry details, connection profile names, selected-row cleanup, and downloadable history
+- Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, full Job ID links, retry details, connection profile names, selected-row cleanup, and downloadable history
 - Uses an app-managed SSH tunnel for SSH-enabled MySQL Shell jobs and keeps that tunnel open for the full `mysqlsh` process
 - Stores progress files, job metadata, and generated MySQL Shell config under a local runtime directory
 - Shows the active user, profile, app version, connection, bucket, and logout action from the top-right user icon menu after login

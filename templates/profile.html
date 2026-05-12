@@ -23,21 +23,19 @@
             <th>MySQL Host</th>
             <th>Database</th>
             <th>SSH</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
           {% for profile in profiles %}
           <tr>
-            <td>{{ profile.name }}</td>
+            <td><a class="table-name-link" href="{{ url_for('profile_page', selected_profile=profile.name) }}">{{ profile.name }}</a></td>
             <td>{{ profile.host }}:{{ profile.port }}</td>
             <td>{{ profile.database }}</td>
             <td>{{ "Yes" if profile.ssh_enabled else "No" }}</td>
-            <td><a class="button secondary" href="{{ url_for('profile_page', selected_profile=profile.name) }}">Edit</a></td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">No saved profiles.</td>
+            <td colspan="4">No saved profiles.</td>
           </tr>
           {% endfor %}
         </tbody>

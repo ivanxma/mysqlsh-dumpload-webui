@@ -688,6 +688,7 @@
           <th class="table-select-cell" data-download-skip>
             <input type="checkbox" data-history-select-all aria-label="Select all cleanup-ready history jobs">
           </th>
+          <th class="history-job-id-column">Job ID</th>
           <th>Submitted</th>
           <th>Operation</th>
           <th>Connection Profile</th>
@@ -695,7 +696,6 @@
           <th>Summary</th>
           <th>Duration</th>
           <th>Retries</th>
-          <th>Job ID</th>
         </tr>
       </thead>
       <tbody>
@@ -712,6 +712,7 @@
               {% if not item.can_cleanup %}disabled{% endif %}
             >
           </td>
+          <td class="history-job-id-cell"><a class="table-name-link" href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}"><code>{{ item.job_id }}</code></a></td>
           <td>{{ item.submitted_at_local or "-" }}</td>
           <td>{{ item.operation_name or item.operation or "-" }}</td>
           <td>
@@ -729,7 +730,6 @@
           </td>
           <td>{{ item.duration_text or "-" }}</td>
           <td>{{ item.retry_count }}</td>
-          <td><a class="table-name-link" href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}"><code>{{ item.job_id[:12] }}</code></a></td>
         </tr>
         {% endfor %}
       </tbody>
