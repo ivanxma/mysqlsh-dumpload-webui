@@ -1,5 +1,6 @@
 import json
 import os
+import ssl
 import subprocess
 import sys
 import urllib.error
@@ -985,11 +986,27 @@ def _fetch_repo_version(version_url):
         version_url,
         headers={"Accept": "application/json", "User-Agent": "mysql-shell-web-version-check"},
     )
+    contexts = [None]
     try:
-        with urllib.request.urlopen(request_object, timeout=2) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-        return "", str(error)
+        import certifi
+
+        contexts.append(ssl.create_default_context(cafile=certifi.where()))
+    except Exception:
+        pass
+
+    last_error = None
+    payload = None
+    for context in contexts:
+        try:
+            with urllib.request.urlopen(request_object, timeout=2, context=context) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+            last_error = error
+            continue
+
+    if payload is None:
+        return "", str(last_error or "Unable to retrieve repository version.")
     if not isinstance(payload, dict):
         return "", "Repository version payload is not a JSON object."
     version = str(payload.get("version", "")).strip()
@@ -1259,8 +1276,6 @@ def login():
                         "success",
                     )
                     return redirect(url_for("update_mysql_shell_web_page"))
-                if version_check.get("error"):
-                    flash(f"Version check skipped: {version_check['error']}", "error")
                 return redirect(url_for("overview_page"))
             except Exception as error:  # pragma: no cover - depends on runtime services
                 clear_login_state(keep_profile=True)
