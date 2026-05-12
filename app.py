@@ -1618,6 +1618,25 @@ def par_manager_page():
                 return redirect(url_for("par_manager_page"))
             except Exception as error:  # pragma: no cover - depends on runtime services
                 flash(str(error), "error")
+        elif action == "delete_selected":
+            selected_entry_ids = [str(item or "").strip() for item in request.form.getlist("selected_pars")]
+            selected_entry_ids = [item for item in selected_entry_ids if item]
+            if not selected_entry_ids:
+                flash("Select at least one stored PAR to revoke.", "error")
+            else:
+                revoked_count = 0
+                failures = []
+                for entry_id in selected_entry_ids:
+                    try:
+                        delete_par_record(config, entry_id)
+                        revoked_count += 1
+                    except Exception as error:  # pragma: no cover - depends on runtime services
+                        failures.append(str(error))
+                if revoked_count:
+                    flash(f"Revoked {revoked_count} stored PAR{'s' if revoked_count != 1 else ''}.", "success")
+                for message in failures:
+                    flash(message, "error")
+                return redirect(url_for("par_manager_page"))
 
     return render_dashboard(
         "par_manager.html",
@@ -1660,6 +1679,30 @@ def folder_manager_page():
                 source_prefix = request.form.get("source_prefix", "")
                 config, deleted_count = delete_folder(config, source_prefix)
                 flash(f"Folder `{source_prefix}` deleted. Objects removed: {deleted_count}.", "success")
+            elif action == "delete_selected":
+                selected_folders = [str(item or "").strip() for item in request.form.getlist("selected_folders")]
+                selected_folders = [item for item in selected_folders if item]
+                if not selected_folders:
+                    flash("Select at least one folder to delete.", "error")
+                else:
+                    deleted_folders = 0
+                    deleted_objects = 0
+                    failures = []
+                    for source_prefix in selected_folders:
+                        try:
+                            config, deleted_count = delete_folder(config, source_prefix)
+                            deleted_folders += 1
+                            deleted_objects += deleted_count
+                        except Exception as error:  # pragma: no cover - depends on runtime services
+                            failures.append(f"{source_prefix}: {error}")
+                    if deleted_folders:
+                        flash(
+                            f"Deleted {deleted_folders} folder{'s' if deleted_folders != 1 else ''}. "
+                            f"Objects removed: {deleted_objects}.",
+                            "success",
+                        )
+                    for message in failures:
+                        flash(message, "error")
             return redirect(url_for("folder_manager_page", current_prefix=current_prefix))
         except Exception as error:  # pragma: no cover - depends on runtime services
             flash(str(error), "error")

@@ -416,13 +416,15 @@ pre,
   box-shadow: 0 12px 24px rgba(71, 44, 17, 0.1);
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled="true"] {
   cursor: not-allowed;
   color: rgba(33, 29, 24, 0.5);
   background: rgba(181, 176, 170, 0.52);
   box-shadow: none;
   transform: none;
   filter: none;
+  pointer-events: none;
 }
 
 .form-grid {
@@ -755,6 +757,32 @@ pre,
   overflow-x: auto;
 }
 
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.table-toolbar h3,
+.table-toolbar .help-text {
+  margin: 0;
+}
+
+.table-toolbar .help-text {
+  margin-top: 4px;
+}
+
+.table-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -979,6 +1007,7 @@ tbody tr:last-child td {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .table-action-row form {

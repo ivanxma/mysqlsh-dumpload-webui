@@ -227,6 +227,60 @@
         });
       })();
     </script>
+    <script>
+      (() => {
+        const csvEscape = (value) => {
+          const text = String(value || "");
+          if (/[",\n\r]/.test(text)) {
+            return '"' + text.replace(/"/g, '""') + '"';
+          }
+          return text;
+        };
+
+        const cellText = (cell) => {
+          const input = cell.querySelector("input, textarea, select");
+          if (input) {
+            return input.value || "";
+          }
+          return cell.innerText.trim().replace(/\s+/g, " ");
+        };
+
+        const downloadTable = (table, filename) => {
+          const skippedColumns = Array.from(table.querySelectorAll("thead th")).reduce((indexes, header, index) => {
+            if (header.hasAttribute("data-download-skip")) {
+              indexes.add(index);
+            }
+            return indexes;
+          }, new Set());
+          const rows = Array.from(table.querySelectorAll("tr")).map((row) => {
+            return Array.from(row.children)
+              .filter((_cell, index) => !skippedColumns.has(index))
+              .map(cellText)
+              .map(csvEscape)
+              .join(",");
+          }).filter((row) => row.trim() !== "");
+
+          const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
+          const link = document.createElement("a");
+          link.href = window.URL.createObjectURL(blob);
+          link.download = filename || "table.csv";
+          document.body.appendChild(link);
+          link.click();
+          window.URL.revokeObjectURL(link.href);
+          link.remove();
+        };
+
+        document.querySelectorAll("[data-download-table]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const table = document.getElementById(button.dataset.downloadTableId || "");
+            if (!table) {
+              return;
+            }
+            downloadTable(table, button.dataset.downloadFilename || "table.csv");
+          });
+        });
+      })();
+    </script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

@@ -52,24 +52,68 @@
   </article>
 
   <article class="panel">
-    <h3>Stored PARs</h3>
+    <form id="par-bulk-form" method="post"></form>
+    <div class="table-toolbar">
+      <div>
+        <h3>Stored PARs</h3>
+        <p class="help-text" data-par-selected-count>0 selected</p>
+      </div>
+      <div class="table-toolbar-actions">
+        <button
+          class="button secondary danger icon-button"
+          type="submit"
+          form="par-bulk-form"
+          name="par_action"
+          value="delete_selected"
+          data-par-delete-selected
+          aria-label="Revoke selected PARs"
+          title="Revoke selected PARs"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+        </button>
+        <button
+          class="button secondary icon-button"
+          type="button"
+          data-download-table
+          data-download-table-id="stored-par-table"
+          data-download-filename="stored-pars.csv"
+          aria-label="Download stored PARs"
+          title="Download stored PARs"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        </button>
+      </div>
+    </div>
     {% if par_entries %}
     <div class="table-wrap">
-      <table>
+      <table id="stored-par-table" class="data-table">
         <thead>
           <tr>
+            <th class="table-select-cell" data-download-skip>
+              <input type="checkbox" data-par-select-all aria-label="Select all stored PARs">
+            </th>
             <th>Name</th>
             <th>Target</th>
             <th>Access</th>
             <th>Expires</th>
             <th>Status</th>
             <th>URL</th>
-            <th></th>
+            <th data-download-skip>Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for entry in par_entries %}
           <tr>
+            <td class="table-select-cell" data-download-skip>
+              <input
+                type="checkbox"
+                name="selected_pars"
+                value="{{ entry.id }}"
+                form="par-bulk-form"
+                data-par-row-checkbox
+                aria-label="Select PAR {{ entry.name }}"
+              >
+            </td>
             <td>{{ entry.name }}</td>
             <td>{{ entry.target_display }}</td>
             <td>{{ entry.access_type }}</td>
@@ -79,10 +123,12 @@
               <input class="code-input" type="text" readonly value="{{ entry.par_url }}">
             </td>
             <td>
-              <form method="post" class="inline-form">
+              <form method="post" class="inline-form" onsubmit="return window.confirm('Revoke this stored PAR?');">
                 <input type="hidden" name="par_action" value="delete">
                 <input type="hidden" name="entry_id" value="{{ entry.id }}">
-                <button class="button secondary danger" type="submit">Revoke</button>
+                <button class="button secondary danger icon-button" type="submit" aria-label="Revoke {{ entry.name }}" title="Revoke">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+                </button>
               </form>
             </td>
           </tr>
@@ -97,4 +143,59 @@
     {% endif %}
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const form = document.getElementById("par-bulk-form");
+    if (!form) {
+      return;
+    }
+    const selectAll = document.querySelector("[data-par-select-all]");
+    const rowCheckboxes = Array.from(document.querySelectorAll("[data-par-row-checkbox]"));
+    const revokeButton = document.querySelector("[data-par-delete-selected]");
+    const selectedCount = document.querySelector("[data-par-selected-count]");
+
+    const checkedRows = () => rowCheckboxes.filter((checkbox) => checkbox.checked);
+
+    const syncSelection = () => {
+      const checked = checkedRows();
+      if (selectAll) {
+        selectAll.checked = rowCheckboxes.length > 0 && checked.length === rowCheckboxes.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < rowCheckboxes.length;
+        selectAll.disabled = rowCheckboxes.length === 0;
+      }
+      if (revokeButton) {
+        revokeButton.disabled = checked.length === 0;
+      }
+      if (selectedCount) {
+        selectedCount.textContent = `${checked.length} selected`;
+      }
+    };
+
+    if (selectAll) {
+      selectAll.addEventListener("change", () => {
+        rowCheckboxes.forEach((checkbox) => {
+          checkbox.checked = selectAll.checked;
+        });
+        syncSelection();
+      });
+    }
+
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", syncSelection);
+    });
+
+    form.addEventListener("submit", (event) => {
+      const submitter = event.submitter;
+      if (submitter && submitter.value === "delete_selected" && !window.confirm("Revoke the selected stored PARs?")) {
+        event.preventDefault();
+      }
+    });
+
+    syncSelection();
+  })();
+</script>
 {% endblock %}
