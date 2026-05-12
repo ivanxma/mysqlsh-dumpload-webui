@@ -9,7 +9,7 @@
 - Runs a MySQL connection health check on the main application pages and redirects back to Login if the active connection is no longer valid
 - Shows MySQL overview details including `server_uuid`, GTID state, and replication/applier errors when present
 - Adds `Admin > DB Admin` with event controls and primary key auditing/fix actions for the current MySQL connection
-- Manages OCI Object Storage settings for namespace, bucket, and prefix selection
+- Manages OCI configuration, including existing OCI config files or an application-local config, plus namespace, bucket, and prefix selection
 - Creates and tracks Pre-Authenticated Requests (PARs) used by MySQL Shell operations
 - Lets you browse, create, rename, and delete managed Object Storage prefixes
 - Runs MySQL Shell `dumpInstance`, `dumpSchemas`, and `loadDump` jobs from the UI
@@ -19,16 +19,18 @@
 - Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, retry details, connection profile names, and cleanup actions for completed jobs
 - Uses an app-managed SSH tunnel for SSH-enabled MySQL Shell jobs and keeps that tunnel open for the full `mysqlsh` process
 - Stores progress files, job metadata, and generated MySQL Shell config under a local runtime directory
+- Adds `Admin > Update MySQL Shell Web` to refresh the Git checkout, rerun setup, and restart the configured service
 
 ## Repository Layout
 
 - `app.py`: Flask entrypoint and route handlers
+- `mysql_shell_web_update_worker.py`: background updater used by the Admin update page
 - `modules/`: MySQL connectivity, Object Storage helpers, session handling, and MySQL Shell script generation
 - `templates/` and `static/`: UI templates and styling
 - `setup.sh`: bootstrap script for Python environment, runtime config, optional service setup, and fresh-host repo bootstrap through `curl | sh`
 - `start_http.sh` / `start_https.sh`: local launch scripts
 - `profiles.json`: starter MySQL connection profiles
-- `object_storage.json`: local OCI Object Storage settings file created in the working copy and intentionally git-ignored
+- `object_storage.json`: local OCI configuration and Object Storage scope file created in the working copy and intentionally git-ignored
 - `mysqlsh_option_profiles.json`: dump/load option profile store created on first use
 - `runtime/`: embedded `mysqlsh`, progress files, and background job state
 
@@ -83,65 +85,115 @@ curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main
 
 ### OCI Compute Instance
 
-For an OCI Compute deployment, create a Linux VM and let the instance bootstrap itself from the Git repo during first boot.
+For an OCI Compute deployment, create a Linux VM and let the instance bootstrap itself from the Git repo during first boot. Keep tenancy-specific values such as compartment OCID, subnet OCID, image OCID, and SSH public key as your own deployment inputs.
 
-1. Create an OCI Compute instance with a supported image such as Oracle Linux 9 or Ubuntu.
-2. Attach a public IP or provide private access through a bastion host.
-3. Add ingress rules for `TCP/22` and the app listener port you plan to use such as `443`.
-4. In the instance creation flow, open the initialization or cloud-init script field and paste a script like the following.
-5. After the instance finishes provisioning, connect over SSH and check the generated `.runtime.env` plus the systemd services created by `setup.sh`. For the example below, the main unit is `mysql-shell-web-https.service`.
+Instance values to choose before creation:
 
-Example init script for Oracle Linux 9:
+- Compartment: your target compartment name or OCID
+- Platform: Oracle Linux 9 or Ubuntu
+- Shape and image: select a supported shape and matching platform image
+- Network: VCN, subnet, public IP setting, and security list or NSG
+- SSH public key: the key used for the expected login user
+- Deploy mode: `http`, `https`, or `both`
+- Ingress: TCP `22` for SSH plus TCP `80`, `443`, or your chosen listener ports
+
+In the OCI Console, create the instance, open `Advanced options` > `Management`, and paste the matching initialization script into `Initialization script`. The script installs `git` if needed, clones or refreshes this repository, runs `setup.sh`, records install state, and installs a login banner for setup progress.
+
+The reusable init script lives at `oci_compute_init.sh`. It records:
+
+- Init log: `/var/log/mysql-shell-web-init.log`
+- State directory: `/var/lib/mysql-shell-web-init`
+- Login banner: `/etc/profile.d/mysql-shell-web-login-banner.sh`
+- Default HTTPS service: `mysql-shell-web-https.service`
+
+If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service. The generated systemd units grant `CAP_NET_BIND_SERVICE`, so the non-root service account can listen on privileged ports such as `80` and `443`.
+
+#### Oracle Linux 9
+
+Expected login user: `opc`
+
+Paste this OL9 init wrapper into the OCI initialization script field:
 
 ```bash
 #!/bin/bash
 set -euxo pipefail
 
-APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git"
-APP_DIR="/home/opc/mysqlsh-dumpload-webui"
-APP_USER="opc"
-APP_GROUP="opc"
-OS_FAMILY="ol9"
-
-if command -v git >/dev/null 2>&1; then
-  :
-elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y git
-elif command -v yum >/dev/null 2>&1; then
-  yum install -y git
-elif command -v apt-get >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y git
-else
-  echo "git could not be installed automatically" >&2
-  exit 1
+if ! command -v curl >/dev/null 2>&1; then
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y curl
+  else
+    yum install -y curl
+  fi
 fi
 
-if [ -d "$APP_DIR" ]; then
-  mv "$APP_DIR" "${APP_DIR}.$(date +%Y%m%d%H%M%S)"
-fi
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
+  -o /tmp/mysql-shell-web-oci-compute-init.sh
 
-sudo -u "$APP_USER" git clone "$APP_REPO" "$APP_DIR"
-cd "$APP_DIR"
-sudo -u "$APP_USER" env \
-  HOST=0.0.0.0 \
-  SERVICE_USER="$APP_USER" \
-  SERVICE_GROUP="$APP_GROUP" \
-  bash ./setup.sh "$OS_FAMILY" https --https-port 443
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_DIR="/home/opc/mysqlsh-dumpload-webui" \
+APP_USER="opc" \
+APP_GROUP="opc" \
+OS_FAMILY="ol9" \
+DEPLOY_MODE="https" \
+HTTP_PORT="80" \
+HTTPS_PORT="443" \
+SERVICE_NAME="mysql-shell-web-https.service" \
+bash /tmp/mysql-shell-web-oci-compute-init.sh
 ```
 
-If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service.
-The generated systemd units grant `CAP_NET_BIND_SERVICE`, so the non-root service account can listen on privileged ports such as `443`.
-If an older deployment shows `Permission denied` while starting on `443`, rerun `./setup.sh` or update the existing systemd unit with the same capability lines and reload systemd.
+Verify OL9 deployment:
 
-Adjust `APP_USER` and `OS_FAMILY` when you use Ubuntu instead of Oracle Linux:
+```bash
+ssh -i <ssh-private-key> opc@<instance-public-ip>
+sudo systemctl status mysql-shell-web-https.service
+sudo tail -n 100 /var/log/mysql-shell-web-init.log
+curl -k -I https://<instance-public-ip>/
+```
 
-- Oracle Linux 9: `APP_USER=opc`, `APP_GROUP=opc`, `OS_FAMILY=ol9`
-- Ubuntu: `APP_USER=ubuntu`, `APP_GROUP=ubuntu`, `OS_FAMILY=ubuntu`
+#### Ubuntu
+
+Expected login user: `ubuntu`
+
+Paste this Ubuntu init wrapper into the OCI initialization script field:
+
+```bash
+#!/bin/bash
+set -euxo pipefail
+
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl
+fi
+
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
+  -o /tmp/mysql-shell-web-oci-compute-init.sh
+
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_DIR="/home/ubuntu/mysqlsh-dumpload-webui" \
+APP_USER="ubuntu" \
+APP_GROUP="ubuntu" \
+OS_FAMILY="ubuntu" \
+DEPLOY_MODE="https" \
+HTTP_PORT="80" \
+HTTPS_PORT="443" \
+SERVICE_NAME="mysql-shell-web-https.service" \
+bash /tmp/mysql-shell-web-oci-compute-init.sh
+```
+
+Verify Ubuntu deployment:
+
+```bash
+ssh -i <ssh-private-key> ubuntu@<instance-public-ip>
+sudo systemctl status mysql-shell-web-https.service
+sudo tail -n 100 /var/log/mysql-shell-web-init.log
+curl -k -I https://<instance-public-ip>/
+```
+
+The login banner is silent for non-interactive shells. For the platform login user, it shows `Please wait until installation to be completed.` while setup is running, `MySQL Shell Web setup has been completed` after success, or a failure message pointing to `/var/log/mysql-shell-web-init.log`.
 
 Once setup finishes, open the app in a browser and continue with the normal workflow:
 
-1. Save Object Storage settings.
+1. Save OCI Configuration settings.
 2. Create a PAR for the dump/load target prefix.
 3. Open the `dumpInstance`, `dumpSchemas`, or `loadDump` tab on the Shell Operations screen, then optionally apply a saved dump or load option profile before running the job.
 4. Define reusable dump filters from `Option Profiles` when you want selector-driven include/exclude lists for schemas, tables, users, events, routines, triggers, or libraries.
@@ -206,7 +258,23 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.
 - `runtime/jobs/` stores background job metadata plus `stdout`/`stderr` logs for each Shell operation.
+- `runtime/oci/config` stores the application-local OCI config when `Admin > OCI Configuration` is set to `Application Local Config`.
 - `loadDump` operations using PAR URLs require a progress file; the app pre-fills a path under `runtime/progress/` and renders it as a relative path when it lives under the repo root.
+
+## Admin Auto-Update
+
+Use `Admin > Update MySQL Shell Web` after logging in to update the running application from its current Git branch.
+
+The updater:
+
+- requires a clean Git worktree before it pulls changes
+- runs `git fetch --all --prune` and `git pull --ff-only`
+- uses `MYSQL_SHELL_WEB_OS_FAMILY`, `.runtime.env OS_FAMILY`, or host detection to choose the `setup.sh` OS family
+- reruns `setup.sh` with saved host, port, TLS, service user, and service group defaults
+- restarts the active `mysql-shell-web-http.service`, `mysql-shell-web-https.service`, or both when systemd is in use
+- stores progress state and logs under `runtime/updates/` so the update page can recover after a restart
+
+For a full update from the web UI, the running service account needs passwordless `sudo` for setup steps that refresh systemd units, firewall rules, and TLS file ownership. If passwordless `sudo` is unavailable, the updater falls back to `SKIP_PRIVILEGED_SETUP=1`; it still refreshes the repository and Python environment, then restarts by terminating the current service process and letting systemd recover it. Run `./setup.sh` manually later if the pulled changes require privileged service, firewall, or TLS ownership changes.
 
 ## Notes
 

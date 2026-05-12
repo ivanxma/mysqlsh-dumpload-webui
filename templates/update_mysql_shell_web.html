@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Admin</p>
+  <h2>Update MySQL Shell Web</h2>
+  <p>Pull repository changes, rerun <code>setup.sh</code>, and restart the configured service.</p>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Updater</h3>
+      <p class="help-text">The update runs in the background. During restart this page keeps polling until the app responds again.</p>
+    </div>
+    <form method="post" action="{{ url_for('update_mysql_shell_web_start') }}">
+      <button class="button primary" id="update-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>
+        Update Application
+      </button>
+    </form>
+  </div>
+
+  <div class="flash update-status-banner update-status-{{ update_status.state or 'idle' }}" id="update-status-banner">
+    {{ update_status.message }}
+  </div>
+
+  <div class="split-layout split-layout-top update-status-layout">
+    <article class="panel update-status-card">
+      <h3>Current Status</h3>
+      <dl class="detail-list">
+        <div>
+          <dt>State</dt>
+          <dd id="update-state-value">{{ update_status.state or "idle" }}</dd>
+        </div>
+        <div>
+          <dt>Step</dt>
+          <dd id="update-step-value">{{ update_status.step or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Started</dt>
+          <dd id="update-started-value">{{ update_status.started_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd id="update-updated-value">{{ update_status.updated_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Finished</dt>
+          <dd id="update-finished-value">{{ update_status.finished_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Services</dt>
+          <dd id="update-services-value">{{ update_status.service_names|join(", ") if update_status.service_names else "-" }}</dd>
+        </div>
+      </dl>
+    </article>
+
+    <article class="panel update-status-card">
+      <h3>Requirements</h3>
+      <ul class="plain-list">
+        <li>The repository worktree must be clean before the update starts.</li>
+        <li>The current branch must accept a fast-forward pull.</li>
+        <li>Passwordless <code>sudo</code> enables full systemd, firewall, and TLS ownership refresh.</li>
+      </ul>
+    </article>
+  </div>
+
+  <div class="panel-header panel-header-tight">
+    <div>
+      <h3>Progress Log</h3>
+      <p class="help-text">Newest lines stay at the bottom.</p>
+    </div>
+  </div>
+  <pre class="code-block update-log-block" id="update-log-block">{{ update_status.log_text or "No update log output yet." }}</pre>
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const statusUrl = {{ status_url|tojson }};
+    const initialStatus = {{ update_status|tojson }};
+    const restartWaitLimitMs = 30000;
+    const pollIntervalMs = 2000;
+    const state = {
+      lastStatus: initialStatus,
+      restartWaitStartedAt: null,
+    };
+
+    const elements = {
+      button: document.getElementById("update-button"),
+      banner: document.getElementById("update-status-banner"),
+      logBlock: document.getElementById("update-log-block"),
+      stateValue: document.getElementById("update-state-value"),
+      stepValue: document.getElementById("update-step-value"),
+      startedValue: document.getElementById("update-started-value"),
+      updatedValue: document.getElementById("update-updated-value"),
+      finishedValue: document.getElementById("update-finished-value"),
+      servicesValue: document.getElementById("update-services-value"),
+    };
+
+    const updateBannerClass = (statusState) => {
+      const normalized = (statusState || "idle").toLowerCase();
+      elements.banner.classList.remove(
+        "update-status-idle",
+        "update-status-running",
+        "update-status-restarting",
+        "update-status-completed",
+        "update-status-error"
+      );
+      elements.banner.classList.add("update-status-" + normalized);
+    };
+
+    const renderStatus = (status, overrideMessage = "") => {
+      const payload = status || {};
+      const services = Array.isArray(payload.service_names) && payload.service_names.length
+        ? payload.service_names.join(", ")
+        : "-";
+      const logText = payload.log_text && payload.log_text.trim()
+        ? payload.log_text
+        : "No update log output yet.";
+
+      updateBannerClass(payload.state || "idle");
+      elements.banner.textContent = overrideMessage || payload.message || "No update has been started.";
+      elements.stateValue.textContent = payload.state || "idle";
+      elements.stepValue.textContent = payload.step || "-";
+      elements.startedValue.textContent = payload.started_at || "-";
+      elements.updatedValue.textContent = payload.updated_at || "-";
+      elements.finishedValue.textContent = payload.finished_at || "-";
+      elements.servicesValue.textContent = services;
+      elements.logBlock.textContent = logText;
+      if (elements.button) {
+        elements.button.disabled = !payload.can_start;
+      }
+    };
+
+    const pollStatus = async () => {
+      try {
+        const response = await window.fetch(statusUrl, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          throw new Error("Status request failed with HTTP " + response.status);
+        }
+        const payload = await response.json();
+        state.lastStatus = payload;
+        state.restartWaitStartedAt = null;
+        renderStatus(payload);
+      } catch (error) {
+        const currentState = (state.lastStatus && state.lastStatus.state) || "idle";
+        if (currentState === "restarting") {
+          if (!state.restartWaitStartedAt) {
+            state.restartWaitStartedAt = Date.now();
+          }
+          const elapsedMs = Date.now() - state.restartWaitStartedAt;
+          const waitMessage = elapsedMs >= restartWaitLimitMs
+            ? "Waiting for the service to restart. Polling will continue."
+            : "Waiting for the service to restart...";
+          renderStatus(state.lastStatus, waitMessage);
+        } else {
+          renderStatus(state.lastStatus, "Unable to refresh the update status right now.");
+        }
+      } finally {
+        window.setTimeout(pollStatus, pollIntervalMs);
+      }
+    };
+
+    renderStatus(initialStatus);
+    window.setTimeout(pollStatus, pollIntervalMs);
+  })();
+</script>
+{% endblock %}

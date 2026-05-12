@@ -3,14 +3,38 @@
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">Admin</p>
-  <h2>Object Storage</h2>
-  <p>Define the bucket and OCI CLI profile that the PAR manager and folder browser will use.</p>
+  <h2>OCI Configuration</h2>
+  <p>Manage the OCI profile and Object Storage scope used by PAR Manager, Folders, and MySQL Shell workflows.</p>
 </section>
 
 <section class="split-layout">
   <article class="panel">
-    <h3>Current Scope</h3>
+    <h3>Current OCI Scope</h3>
     <dl class="detail-list">
+      <div>
+        <dt>Config Source</dt>
+        <dd>{{ "Application Local" if object_storage_config.config_source == "local" else "Existing Config File" }}</dd>
+      </div>
+      <div>
+        <dt>Effective Config File</dt>
+        <dd>{{ oci_config_status.effective_file or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Config File Status</dt>
+        <dd>
+          <span class="badge {% if oci_config_status.exists %}good{% else %}warn{% endif %}">
+            {{ "Found" if oci_config_status.exists else "Missing" }}
+          </span>
+        </dd>
+      </div>
+      <div>
+        <dt>OCI Profile</dt>
+        <dd>{{ object_storage_config.config_profile or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Available Profiles</dt>
+        <dd>{{ oci_config_status.profiles|join(", ") if oci_config_status.profiles else "-" }}</dd>
+      </div>
       <div>
         <dt>Region Override</dt>
         <dd>{{ object_storage_config.region or "-" }}</dd>
@@ -27,48 +51,95 @@
         <dt>Root Prefix</dt>
         <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
       </div>
-      <div>
-        <dt>OCI Profile</dt>
-        <dd>{{ object_storage_config.config_profile or "-" }}</dd>
-      </div>
-      <div>
-        <dt>OCI Config File</dt>
-        <dd>{{ object_storage_config.config_file or "-" }}</dd>
-      </div>
     </dl>
   </article>
 
   <article class="panel">
     <h3>Configuration</h3>
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" data-oci-config-form>
       <label>
-        Region Override
-        <input name="region" type="text" value="{{ object_storage_config.region }}">
-      </label>
-      <label>
-        Namespace *
-        <input name="namespace" type="text" value="{{ object_storage_config.namespace }}">
-      </label>
-      <label>
-        Bucket Name *
-        <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
-      </label>
-      <label>
-        Root Prefix
-        <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
+        OCI Config Source
+        <select name="config_source" data-oci-config-source>
+          <option value="existing" {% if object_storage_config.config_source != "local" %}selected{% endif %}>Existing Config File</option>
+          <option value="local" {% if object_storage_config.config_source == "local" %}selected{% endif %}>Application Local Config</option>
+        </select>
       </label>
       <label>
         OCI Profile
-        <input name="config_profile" type="text" value="{{ object_storage_config.config_profile }}">
+        <input name="config_profile" type="text" value="{{ object_storage_config.config_profile }}" list="oci-profile-list">
+        <datalist id="oci-profile-list">
+          {% for profile_name in oci_config_status.profiles %}
+          <option value="{{ profile_name }}"></option>
+          {% endfor %}
+        </datalist>
       </label>
-      <label class="full-span">
-        OCI Config File
-        <input name="config_file" type="text" value="{{ object_storage_config.config_file }}">
-      </label>
-      <div class="form-actions">
-        <button class="button primary" type="submit">Save Object Storage Config</button>
+
+      <section class="form-section full-span" data-existing-config-section>
+        <h4>Existing OCI Config</h4>
+        <label>
+          OCI Config File
+          <input name="config_file" type="text" value="{{ object_storage_config.config_file if object_storage_config.config_source != 'local' else '~/.oci/config' }}">
+        </label>
+      </section>
+
+      <section class="form-section full-span" data-local-config-section>
+        <h4>Application Local OCI Config</h4>
+        <p class="help-text">Saved at <code>{{ oci_config_status.local_config_file }}</code>.</p>
+        <label>
+          Local OCI Config Content
+          <textarea name="local_config_text" class="code-input code-area" spellcheck="false">{{ oci_config_status.local_config_text }}</textarea>
+        </label>
+      </section>
+
+      <section class="form-section full-span">
+        <h4>Object Storage Scope</h4>
+        <div class="option-grid two-column">
+          <label>
+            Region Override
+            <input name="region" type="text" value="{{ object_storage_config.region }}">
+          </label>
+          <label>
+            Namespace *
+            <input name="namespace" type="text" value="{{ object_storage_config.namespace }}">
+          </label>
+          <label>
+            Bucket Name *
+            <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
+          </label>
+          <label>
+            Root Prefix
+            <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
+          </label>
+        </div>
+      </section>
+
+      <div class="form-actions full-span">
+        <button class="button primary" type="submit">Save OCI Configuration</button>
       </div>
     </form>
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const source = document.querySelector("[data-oci-config-source]");
+    const existingSection = document.querySelector("[data-existing-config-section]");
+    const localSection = document.querySelector("[data-local-config-section]");
+    if (!source || !existingSection || !localSection) {
+      return;
+    }
+
+    const syncSections = () => {
+      const useLocal = source.value === "local";
+      existingSection.hidden = useLocal;
+      localSection.hidden = !useLocal;
+    };
+
+    source.addEventListener("change", syncSections);
+    syncSections();
+  })();
+</script>
 {% endblock %}

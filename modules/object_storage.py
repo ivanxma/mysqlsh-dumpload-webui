@@ -1,9 +1,16 @@
 import json
 import os
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from .config import DEFAULT_OBJECT_STORAGE, OBJECT_STORAGE_STORE, PAR_ACCESS_OPTIONS, PAR_STORE
+from .config import (
+    DEFAULT_OBJECT_STORAGE,
+    LOCAL_OCI_CONFIG_FILE,
+    OBJECT_STORAGE_STORE,
+    PAR_ACCESS_OPTIONS,
+    PAR_STORE,
+)
 
 try:
     import oci
@@ -57,6 +64,19 @@ def ensure_object_storage_store():
     OBJECT_STORAGE_STORE.write_text(json.dumps(DEFAULT_OBJECT_STORAGE, indent=2) + "\n", encoding="utf-8")
 
 
+def _normalize_config_source(value):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"local", "app", "application"}:
+        return "local"
+    return "existing"
+
+
+def effective_oci_config_file(config):
+    if _normalize_config_source(config.get("config_source")) == "local":
+        return str(LOCAL_OCI_CONFIG_FILE)
+    return str(config.get("config_file", "")).strip() or DEFAULT_OBJECT_STORAGE["config_file"]
+
+
 def normalize_object_storage(payload):
     managed_folders = payload.get("managed_folders", [])
     if not isinstance(managed_folders, list):
@@ -74,13 +94,19 @@ def normalize_object_storage(payload):
         seen.add(normalized)
         normalized_folders.append(normalized)
 
+    config_source = _normalize_config_source(payload.get("config_source", DEFAULT_OBJECT_STORAGE["config_source"]))
+    config_file = str(payload.get("config_file", "")).strip() or DEFAULT_OBJECT_STORAGE["config_file"]
+    if config_source == "local":
+        config_file = str(LOCAL_OCI_CONFIG_FILE)
+
     return {
+        "config_source": config_source,
         "region": str(payload.get("region", "")).strip(),
         "namespace": str(payload.get("namespace", "")).strip(),
         "bucket_name": str(payload.get("bucket_name", "")).strip(),
         "bucket_prefix": normalize_relative_prefix(payload.get("bucket_prefix", "")),
         "config_profile": str(payload.get("config_profile", "")).strip() or DEFAULT_OBJECT_STORAGE["config_profile"],
-        "config_file": str(payload.get("config_file", "")).strip() or DEFAULT_OBJECT_STORAGE["config_file"],
+        "config_file": config_file,
         "managed_folders": sorted(normalized_folders),
     }
 
@@ -99,6 +125,55 @@ def save_object_storage_config(payload):
         json.dumps(normalize_object_storage(payload), indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def read_local_oci_config_text():
+    try:
+        return LOCAL_OCI_CONFIG_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def save_local_oci_config_text(value):
+    LOCAL_OCI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LOCAL_OCI_CONFIG_FILE.write_text(str(value or "").strip() + "\n", encoding="utf-8")
+    try:
+        LOCAL_OCI_CONFIG_FILE.chmod(0o600)
+    except OSError:
+        pass
+
+
+def list_oci_config_profiles(config_file):
+    config_path = os.path.expanduser(str(config_file or "").strip())
+    if not config_path:
+        return []
+    try:
+        text = open(config_path, "r", encoding="utf-8").read()
+    except OSError:
+        return []
+    profiles = []
+    for line in text.splitlines():
+        match = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+        if match:
+            profiles.append(match.group(1).strip())
+    return profiles
+
+
+def build_oci_config_status(config):
+    effective_file = effective_oci_config_file(config)
+    expanded_file = os.path.expanduser(effective_file)
+    profiles = list_oci_config_profiles(effective_file)
+    return {
+        "config_source": _normalize_config_source(config.get("config_source")),
+        "configured_file": str(config.get("config_file", "")).strip(),
+        "effective_file": effective_file,
+        "expanded_file": expanded_file,
+        "exists": os.path.exists(expanded_file),
+        "profiles": profiles,
+        "active_profile": str(config.get("config_profile", "") or DEFAULT_OBJECT_STORAGE["config_profile"]),
+        "local_config_file": str(LOCAL_OCI_CONFIG_FILE),
+        "local_config_text": read_local_oci_config_text(),
+    }
 
 
 def ensure_par_store():
@@ -249,7 +324,7 @@ def _get_oci_config(config):
     if oci is None:
         raise RuntimeError("The `oci` package is required for Object Storage integration.")
 
-    config_file = os.path.expanduser(str(config.get("config_file", "") or DEFAULT_OBJECT_STORAGE["config_file"]))
+    config_file = os.path.expanduser(effective_oci_config_file(config))
     profile_name = str(config.get("config_profile", "") or DEFAULT_OBJECT_STORAGE["config_profile"])
     try:
         oci_config = oci.config.from_file(file_location=config_file, profile_name=profile_name)

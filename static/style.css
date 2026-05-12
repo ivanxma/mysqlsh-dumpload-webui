@@ -713,6 +713,50 @@ tbody tr:last-child td {
   color: var(--warning-text);
 }
 
+.plain-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.panel-header-tight {
+  margin-top: 8px;
+}
+
+.update-status-layout {
+  align-items: stretch;
+}
+
+.update-status-card {
+  box-shadow: none;
+}
+
+.update-status-banner {
+  margin-bottom: 20px;
+}
+
+.update-status-running,
+.update-status-restarting {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.update-status-completed {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.update-status-error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.update-log-block {
+  min-height: 260px;
+  max-height: 520px;
+}
+
 .db-admin-detail-panel {
   margin-top: 20px;
 }

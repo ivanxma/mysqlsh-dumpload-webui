@@ -10,6 +10,8 @@ OPTION_PROFILE_STORE = ROOT_DIR / "mysqlsh_option_profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 PAR_STORE = ROOT_DIR / "par_registry.json"
 RUNTIME_DIR = ROOT_DIR / "runtime"
+OCI_CONFIG_DIR = RUNTIME_DIR / "oci"
+LOCAL_OCI_CONFIG_FILE = OCI_CONFIG_DIR / "config"
 PROGRESS_DIR = RUNTIME_DIR / "progress"
 JOBS_DIR = RUNTIME_DIR / "jobs"
 MYSQLSH_USER_CONFIG_HOME = RUNTIME_DIR / "mysqlsh"
@@ -29,6 +31,7 @@ DEFAULT_PROFILE = {
 }
 
 DEFAULT_OBJECT_STORAGE = {
+    "config_source": "existing",
     "region": "",
     "namespace": "",
     "bucket_name": "",
@@ -69,7 +72,8 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "db_admin_page", "label": "DB Admin"},
-            {"endpoint": "object_storage_settings_page", "label": "Object Storage"},
+            {"endpoint": "object_storage_settings_page", "label": "OCI Configuration"},
+            {"endpoint": "update_mysql_shell_web_page", "label": "Update MySQL Shell Web"},
         ],
     },
     {

@@ -1,6 +1,8 @@
 import json
 import os
-from datetime import datetime, timedelta
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import pymysql
@@ -11,6 +13,8 @@ from modules.config import (
     NAV_GROUPS,
     PAR_ACCESS_OPTIONS,
     PAR_TARGET_OPTIONS,
+    ROOT_DIR,
+    RUNTIME_DIR,
     SHELL_OPERATION_OPTIONS,
     MYSQL_SHELL_WEB_SESSION_COOKIE_NAME,
     MYSQL_SHELL_WEB_SESSION_COOKIE_PATH,
@@ -53,6 +57,7 @@ from modules.option_profiles import (
     save_option_profile,
 )
 from modules.object_storage import (
+    build_oci_config_status,
     create_managed_folder,
     create_par_record,
     delete_folder,
@@ -70,6 +75,7 @@ from modules.object_storage import (
     normalize_relative_prefix,
     parent_relative_prefix,
     rename_folder,
+    save_local_oci_config_text,
     save_object_storage_config,
 )
 from modules.profiles import (
@@ -112,6 +118,11 @@ app.config["SESSION_COOKIE_PATH"] = MYSQL_SHELL_WEB_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = MYSQL_SHELL_WEB_SESSION_COOKIE_SAMESITE
 app.config["SESSION_COOKIE_SECURE"] = MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE
+APP_STARTED_AT = datetime.now(timezone.utc).replace(microsecond=0)
+UPDATE_DIR = RUNTIME_DIR / "updates"
+UPDATE_STATUS_FILE = UPDATE_DIR / "mysql_shell_web_update_status.json"
+UPDATE_LOG_FILE = UPDATE_DIR / "mysql_shell_web_update.log"
+UPDATE_WORKER_FILE = ROOT_DIR / "mysql_shell_web_update_worker.py"
 
 MYSQL_PAGE_HEALTHCHECK_ENDPOINTS = {
     "overview_page",
@@ -119,7 +130,6 @@ MYSQL_PAGE_HEALTHCHECK_ENDPOINTS = {
     "db_admin_event_toggle",
     "db_admin_apply_primary_key_fix",
     "profile_page",
-    "object_storage_settings_page",
     "par_manager_page",
     "folder_manager_page",
     "shell_operations_page",
@@ -858,6 +868,179 @@ def _safe_current_prefix(value):
         return ""
 
 
+def _utc_now_iso():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _parse_update_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _read_json_file(path):
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_update_status(payload):
+    UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+    payload["updated_at"] = _utc_now_iso()
+    temp_file = UPDATE_STATUS_FILE.with_suffix(".tmp")
+    with temp_file.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    temp_file.replace(UPDATE_STATUS_FILE)
+    return payload
+
+
+def _read_update_log():
+    try:
+        return UPDATE_LOG_FILE.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _is_process_running(pid):
+    try:
+        normalized_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if normalized_pid <= 0:
+        return False
+    try:
+        os.kill(normalized_pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _normalize_update_status(payload=None):
+    status = dict(payload or _read_json_file(UPDATE_STATUS_FILE))
+    state = str(status.get("state") or "idle").strip().lower()
+    if state not in {"idle", "running", "restarting", "completed", "error"}:
+        state = "idle"
+    status["state"] = state
+    status.setdefault("step", "")
+    status.setdefault("started_at", "")
+    status.setdefault("updated_at", "")
+    status.setdefault("finished_at", "")
+    status.setdefault("restart_requested_at", "")
+    status.setdefault("service_names", [])
+    status.setdefault("worker_pid", "")
+
+    if state == "idle":
+        status["message"] = status.get("message") or "No update has been started."
+    elif state == "running":
+        worker_pid = status.get("worker_pid")
+        if worker_pid and not _is_process_running(worker_pid):
+            status["state"] = "error"
+            status["step"] = "Failed"
+            status["message"] = "Update worker stopped before reporting completion."
+            status["finished_at"] = status.get("finished_at") or _utc_now_iso()
+            _write_update_status(status)
+        else:
+            status["message"] = status.get("message") or "Update worker is running."
+    elif state == "restarting":
+        restart_requested_at = _parse_update_timestamp(status.get("restart_requested_at"))
+        if restart_requested_at and APP_STARTED_AT > restart_requested_at:
+            status["state"] = "completed"
+            status["step"] = "Completed"
+            status["message"] = status.get("completion_message") or "Update completed and the service restarted."
+            status["finished_at"] = status.get("finished_at") or _utc_now_iso()
+            _write_update_status(status)
+        else:
+            status["message"] = status.get("message") or "Waiting for the service to restart."
+    elif state == "completed":
+        status["message"] = status.get("message") or "Update completed."
+    elif state == "error":
+        status["message"] = status.get("message") or "Update failed."
+
+    status["log_text"] = _read_update_log()
+    status["can_start"] = status["state"] not in {"running", "restarting"}
+    return status
+
+
+def _start_update_worker():
+    current_status = _normalize_update_status()
+    if not current_status.get("can_start"):
+        raise RuntimeError("An update is already running.")
+
+    UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+    if not UPDATE_WORKER_FILE.exists():
+        raise RuntimeError(f"Update worker was not found at {UPDATE_WORKER_FILE}.")
+
+    try:
+        UPDATE_LOG_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+    status = {
+        "state": "running",
+        "step": "Queued",
+        "message": "Update worker has been queued.",
+        "started_at": _utc_now_iso(),
+        "finished_at": "",
+        "restart_requested_at": "",
+        "service_names": [],
+    }
+    _write_update_status(status)
+
+    env = os.environ.copy()
+    pythonpath_entries = [str(ROOT_DIR)]
+    existing_pythonpath = str(env.get("PYTHONPATH", "")).strip()
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+
+    command = [
+        sys.executable,
+        str(UPDATE_WORKER_FILE),
+        "--repo-dir",
+        str(ROOT_DIR),
+        "--status-file",
+        str(UPDATE_STATUS_FILE),
+        "--log-file",
+        str(UPDATE_LOG_FILE),
+        "--service-pid",
+        str(os.getpid()),
+    ]
+    try:
+        with UPDATE_LOG_FILE.open("a", encoding="utf-8") as log_handle:
+            process = subprocess.Popen(
+                command,
+                cwd=str(ROOT_DIR),
+                env=env,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+                start_new_session=True,
+            )
+    except Exception as error:
+        status["state"] = "error"
+        status["step"] = "Failed"
+        status["message"] = str(error)
+        status["finished_at"] = _utc_now_iso()
+        _write_update_status(status)
+        raise
+    status["worker_pid"] = process.pid
+    status["message"] = "Update worker is running."
+    _write_update_status(status)
+    return status
+
+
 def _redirect_to_login_for_mysql_unavailable(error):
     profile_name = str(session.get("profile_name", "")).strip()
     clear_login_state(keep_profile=True)
@@ -1139,16 +1322,47 @@ def object_storage_settings_page():
         merged_payload = dict(config)
         merged_payload.update(request.form.to_dict())
         merged_payload["managed_folders"] = config.get("managed_folders", [])
+        if str(merged_payload.get("config_source", "")).strip().lower() == "local":
+            save_local_oci_config_text(request.form.get("local_config_text", ""))
         config = normalize_object_storage(merged_payload)
         save_object_storage_config(config)
-        flash("Object Storage configuration saved.", "success")
+        flash("OCI configuration saved.", "success")
         return redirect(url_for("object_storage_settings_page"))
 
     return render_dashboard(
         "object_storage_settings.html",
-        page_title="Object Storage",
+        page_title="OCI Configuration",
         object_storage_config=config,
+        oci_config_status=build_oci_config_status(config),
     )
+
+
+@app.route("/admin/update")
+@login_required
+def update_mysql_shell_web_page():
+    return render_dashboard(
+        "update_mysql_shell_web.html",
+        page_title="Update MySQL Shell Web",
+        update_status=_normalize_update_status(),
+        status_url=url_for("update_mysql_shell_web_status"),
+    )
+
+
+@app.route("/admin/update/start", methods=["POST"])
+@login_required
+def update_mysql_shell_web_start():
+    try:
+        _start_update_worker()
+        flash("Update started.", "success")
+    except Exception as error:
+        flash(str(error), "error")
+    return redirect(url_for("update_mysql_shell_web_page"))
+
+
+@app.route("/admin/update/status")
+@login_required
+def update_mysql_shell_web_status():
+    return jsonify(_normalize_update_status())
 
 
 @app.route("/object-storage/par", methods=["GET", "POST"])
