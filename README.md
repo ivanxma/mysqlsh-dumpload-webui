@@ -254,6 +254,7 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - `.runtime.env`, `.venv/`, `runtime/`, `tls/`, and `par_registry.json` are local runtime artifacts and are git-ignored.
 - `.runtime.env` stores the resolved embedded `MYSQLSH_BINARY` path used by the app and systemd services.
 - `profiles.json` is an editable local default file checked into the repo, but environment-specific SSH hosts, usernames, and private key paths should stay local and should not be committed back.
+- `setup.sh` marks tracked `profiles.json` as local-only for the current checkout with `git update-index --skip-worktree` so saved deployment profiles do not block Admin auto-update.
 - `object_storage.json` is intentionally local-only and git-ignored because it can contain sensitive tenancy, namespace, bucket, and folder metadata.
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.

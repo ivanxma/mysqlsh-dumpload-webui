@@ -1006,6 +1006,17 @@ ensure_python() {
   fi
 }
 
+mark_local_state_files() {
+  if [[ ! -d "$SCRIPT_DIR/.git" ]] || ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if git -C "$SCRIPT_DIR" ls-files --error-unmatch profiles.json >/dev/null 2>&1; then
+    git -C "$SCRIPT_DIR" update-index --skip-worktree profiles.json || true
+    echo "Marked profiles.json as local-only for this checkout."
+  fi
+}
+
 main() {
   local os_family="$OS_FAMILY_INPUT"
   local deploy_mode
@@ -1094,6 +1105,7 @@ main() {
 
   mysqlsh_binary="$(run_mysqlsh_installer "$os_family")"
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$mysqlsh_binary" "$os_family" "$deploy_mode"
+  mark_local_state_files
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file"
 
   if privileged_setup_skipped; then
