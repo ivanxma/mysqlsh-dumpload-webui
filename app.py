@@ -2301,6 +2301,54 @@ def mysqlsh_job_cleanup(job_id):
     return redirect(url_for("shell_operations_page", page=next_page, operation=snapshot["operation"]))
 
 
+@app.route("/mysql-shell/operations/jobs/cleanup-selected", methods=["POST"])
+@login_required
+def mysqlsh_jobs_cleanup_selected():
+    next_page = _normalize_shell_operations_page(
+        request.form.get("page"),
+        request.form.get("operation"),
+        request.form.get("view"),
+    )
+    job_access_profile_name = None if next_page == "history" else get_current_profile_name()
+    selected_job_ids = [str(item or "").strip() for item in request.form.getlist("selected_jobs")]
+    selected_job_ids = [item for item in selected_job_ids if item]
+    if not selected_job_ids:
+        flash("Select at least one history job to clean up.", "error")
+        return redirect(url_for("shell_operations_page", page=next_page))
+
+    cleaned_count = 0
+    failures = []
+    for job_id in selected_job_ids:
+        snapshot = build_mysqlsh_job_snapshot(
+            job_id,
+            owner_username=get_current_username(),
+            owner_profile_name=job_access_profile_name,
+        )
+        if snapshot is None:
+            failures.append(f"Job {job_id[:12]} was not found.")
+            continue
+        if not snapshot.get("can_cleanup"):
+            failures.append(f"Job {job_id[:12]} is not ready for cleanup.")
+            continue
+        try:
+            cleanup_mysqlsh_job(
+                job_id,
+                owner_username=get_current_username(),
+                owner_profile_name=job_access_profile_name,
+            )
+            if get_session_value("last_mysqlsh_job_id") == job_id:
+                set_session_value("last_mysqlsh_job_id", "")
+            cleaned_count += 1
+        except Exception as error:  # pragma: no cover - filesystem/runtime path
+            failures.append(f"Job {job_id[:12]} cleanup failed: {error}")
+
+    if cleaned_count:
+        flash(f"Cleaned up {cleaned_count} job{'s' if cleaned_count != 1 else ''}.", "success")
+    for message in failures:
+        flash(message, "error")
+    return redirect(url_for("shell_operations_page", page=next_page))
+
+
 @app.errorhandler(pymysql.err.OperationalError)
 def handle_mysql_operational_error(error):
     if not is_logged_in():

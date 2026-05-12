@@ -640,14 +640,54 @@
 
 {% elif is_history_page %}
 <section class="panel">
-  <h3>History</h3>
-  <p class="help-text">Recent MySQL Shell jobs for the current MySQL username across dump and load operations. Each row shows the connection profile used for that run.</p>
+  <form id="history-bulk-form" method="post" action="{{ url_for('mysqlsh_jobs_cleanup_selected') }}">
+    <input type="hidden" name="page" value="history">
+  </form>
+  <div class="table-toolbar">
+    <div>
+      <h3>History</h3>
+      <p class="help-text">Recent MySQL Shell jobs for the current MySQL username across dump and load operations. Each row shows the connection profile used for that run.</p>
+      <p class="help-text" data-history-selected-count>0 selected</p>
+    </div>
+    <div class="table-toolbar-actions">
+      <button
+        class="button secondary danger icon-button"
+        type="submit"
+        form="history-bulk-form"
+        data-history-cleanup-selected
+        aria-label="Clean up selected jobs"
+        title="Clean up selected jobs"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 7h16" />
+          <path d="M9 7V4h6v3" />
+          <path d="M7 7l1 13h8l1-13" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+        </svg>
+      </button>
+      <button
+        class="button secondary icon-button"
+        type="button"
+        data-download-table
+        data-download-table-id="history-table"
+        data-download-filename="mysql-shell-history.csv"
+        aria-label="Download history"
+        title="Download history"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+      </button>
+    </div>
+  </div>
 
   {% if operation_history %}
   <div class="table-wrap">
-    <table>
+    <table id="history-table" class="data-table">
       <thead>
         <tr>
+          <th class="table-select-cell" data-download-skip>
+            <input type="checkbox" data-history-select-all aria-label="Select all cleanup-ready history jobs">
+          </th>
           <th>Submitted</th>
           <th>Operation</th>
           <th>Connection Profile</th>
@@ -656,12 +696,22 @@
           <th>Duration</th>
           <th>Retries</th>
           <th>Job ID</th>
-          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for item in operation_history %}
         <tr>
+          <td class="table-select-cell" data-download-skip>
+            <input
+              type="checkbox"
+              name="selected_jobs"
+              value="{{ item.job_id }}"
+              form="history-bulk-form"
+              data-history-row-checkbox
+              aria-label="Select job {{ item.job_id }}"
+              {% if not item.can_cleanup %}disabled{% endif %}
+            >
+          </td>
           <td>{{ item.submitted_at_local or "-" }}</td>
           <td>{{ item.operation_name or item.operation or "-" }}</td>
           <td>
@@ -679,28 +729,7 @@
           </td>
           <td>{{ item.duration_text or "-" }}</td>
           <td>{{ item.retry_count }}</td>
-          <td><a href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}"><code>{{ item.job_id[:12] }}</code></a></td>
-          <td>
-            <div class="job-action-row history-action-row">
-              <a class="button secondary" href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}">Open</a>
-              {% if item.can_cleanup %}
-              <form method="post" action="{{ url_for('mysqlsh_job_cleanup', job_id=item.job_id) }}" onsubmit="return window.confirm('Cleanup this job and remove its files?');">
-                <input type="hidden" name="page" value="history">
-                <button class="button secondary icon-button" type="submit" aria-label="Cleanup job {{ item.job_id }}" title="Cleanup">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M4 7h16" />
-                    <path d="M9 7V4h6v3" />
-                    <path d="M7 7l1 13h8l1-13" />
-                    <path d="M10 11v6" />
-                    <path d="M14 11v6" />
-                  </svg>
-                </button>
-              </form>
-              {% else %}
-              <span class="history-action-placeholder">-</span>
-              {% endif %}
-            </div>
-          </td>
+          <td><a class="table-name-link" href="{{ url_for('shell_operations_page', page='history', job_id=item.job_id, operation=item.operation) }}"><code>{{ item.job_id[:12] }}</code></a></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -1028,6 +1057,59 @@
     </section>
   </div>
 </section>
+{% endif %}
+{% if is_history_page %}
+<script>
+  (() => {
+    const form = document.getElementById("history-bulk-form");
+    if (!form) {
+      return;
+    }
+    const selectAll = document.querySelector("[data-history-select-all]");
+    const rowCheckboxes = Array.from(document.querySelectorAll("[data-history-row-checkbox]"));
+    const selectableCheckboxes = rowCheckboxes.filter((checkbox) => !checkbox.disabled);
+    const cleanupButton = document.querySelector("[data-history-cleanup-selected]");
+    const selectedCount = document.querySelector("[data-history-selected-count]");
+
+    const checkedRows = () => selectableCheckboxes.filter((checkbox) => checkbox.checked);
+
+    const syncSelection = () => {
+      const checked = checkedRows();
+      if (selectAll) {
+        selectAll.checked = selectableCheckboxes.length > 0 && checked.length === selectableCheckboxes.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < selectableCheckboxes.length;
+        selectAll.disabled = selectableCheckboxes.length === 0;
+      }
+      if (cleanupButton) {
+        cleanupButton.disabled = checked.length === 0;
+      }
+      if (selectedCount) {
+        selectedCount.textContent = `${checked.length} selected`;
+      }
+    };
+
+    if (selectAll) {
+      selectAll.addEventListener("change", () => {
+        selectableCheckboxes.forEach((checkbox) => {
+          checkbox.checked = selectAll.checked;
+        });
+        syncSelection();
+      });
+    }
+
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", syncSelection);
+    });
+
+    form.addEventListener("submit", (event) => {
+      if (!window.confirm("Cleanup the selected jobs and remove their files?")) {
+        event.preventDefault();
+      }
+    });
+
+    syncSelection();
+  })();
+</script>
 {% endif %}
 {% endblock %}
 
