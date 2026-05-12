@@ -13,11 +13,16 @@
       <h3>Updater</h3>
       <p class="help-text">The update runs in the background. During restart this page keeps polling until the app responds again.</p>
     </div>
-    <form method="post" action="{{ url_for('update_mysql_shell_web_start') }}">
-      <button class="button primary" id="update-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>
-        Update Application
-      </button>
-    </form>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('update_mysql_shell_web_retrieve_version') }}">
+        <button class="button secondary" type="submit">Retrieve Repo Version</button>
+      </form>
+      <form method="post" action="{{ url_for('update_mysql_shell_web_start') }}">
+        <button class="button primary" id="update-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>
+          Update Application
+        </button>
+      </form>
+    </div>
   </div>
 
   <div class="flash update-status-banner update-status-{{ update_status.state or 'idle' }}" id="update-status-banner">
@@ -28,6 +33,18 @@
     <article class="panel update-status-card">
       <h3>Current Status</h3>
       <dl class="detail-list">
+        <div>
+          <dt>App Version</dt>
+          <dd>{{ version_check.app_version or app_version or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Repo Version</dt>
+          <dd>{{ version_check.repo_version or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Version Checked</dt>
+          <dd>{{ version_check.checked_at or "-" }}</dd>
+        </div>
         <div>
           <dt>State</dt>
           <dd id="update-state-value">{{ update_status.state or "idle" }}</dd>
@@ -61,6 +78,10 @@
         <li>The repository worktree must be clean before the update starts.</li>
         <li>The current branch must accept a fast-forward pull.</li>
         <li>Passwordless <code>sudo</code> enables full systemd, firewall, and TLS ownership refresh.</li>
+        <li>Version URL: <code>{{ version_check.version_url or "-" }}</code></li>
+        {% if version_check.error %}
+        <li>Version check: {{ version_check.error }}</li>
+        {% endif %}
       </ul>
     </article>
   </div>

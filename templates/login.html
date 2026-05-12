@@ -26,7 +26,7 @@
             <p>Connect to MySQL, select an optional SSH tunnel profile, and then drive Object Storage and MySQL Shell workflows from one dashboard.</p>
           </div>
 
-          <form method="post" class="form-grid">
+          <form method="post" class="form-grid" autocomplete="off">
             <div class="field-row">
               <label>
                 Profile
@@ -87,7 +87,7 @@
 
             <label>
               MySQL Username *
-              <input name="username" type="text" autocomplete="username">
+              <input name="username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
             </label>
             <label>
               MySQL Password

@@ -2,14 +2,18 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import pymysql
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 from modules.config import (
+    APP_VERSION_FILE,
     APP_TITLE,
+    MYSQL_SHELL_WEB_VERSION_URL,
     NAV_GROUPS,
     PAR_ACCESS_OPTIONS,
     PAR_TARGET_OPTIONS,
@@ -107,11 +111,18 @@ from modules.shell_options import (
 from modules.session_utils import (
     clear_login_state,
     ensure_session_scope,
+    get_current_profile_name,
+    get_current_username,
     get_session_credentials,
     get_session_profile,
+    get_session_value,
+    get_version_check,
+    has_server_login_state,
     is_logged_in,
+    set_session_value,
     set_login_state,
     set_session_profile,
+    set_version_check,
 )
 
 
@@ -150,6 +161,9 @@ def ensure_mysql_connection_healthcheck():
     if not is_logged_in():
         return None
 
+    if not has_server_login_state():
+        return _redirect_to_login_for_mysql_unavailable("The server-side login state is no longer available.")
+
     current_endpoint = str(request.endpoint or "").strip()
     if current_endpoint not in MYSQL_PAGE_HEALTHCHECK_ENDPOINTS:
         return None
@@ -159,6 +173,15 @@ def ensure_mysql_connection_healthcheck():
     except Exception as error:  # pragma: no cover - depends on runtime services
         return _redirect_to_login_for_mysql_unavailable(error)
     return None
+
+
+@app.after_request
+def add_no_store_headers(response):
+    if is_logged_in() or request.endpoint in {"login", "logout", "profile_page"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 def _normalize_checkbox(value):
@@ -898,6 +921,113 @@ def _read_json_file(path):
     return payload if isinstance(payload, dict) else {}
 
 
+def _app_version_payload():
+    payload = _read_json_file(APP_VERSION_FILE)
+    version = str(payload.get("version", "")).strip()
+    return {
+        "version": version or "1.0",
+        "source": str(APP_VERSION_FILE),
+    }
+
+
+def _current_git_branch():
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=str(ROOT_DIR),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    branch_name = str(result.stdout or "").strip()
+    return branch_name or "main"
+
+
+def _git_remote_origin_url():
+    result = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"],
+        cwd=str(ROOT_DIR),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    return str(result.stdout or "").strip()
+
+
+def _github_raw_version_url_from_remote(remote_url, branch_name):
+    remote = str(remote_url or "").strip()
+    branch = str(branch_name or "main").strip() or "main"
+    owner_repo = ""
+    if remote.startswith("git@github.com:"):
+        owner_repo = remote.split(":", 1)[1]
+    elif "github.com/" in remote:
+        owner_repo = remote.split("github.com/", 1)[1]
+    if not owner_repo:
+        return ""
+    owner_repo = owner_repo.removesuffix(".git").strip("/")
+    if owner_repo.count("/") < 1:
+        return ""
+    return f"https://raw.githubusercontent.com/{owner_repo}/{branch}/appver.json"
+
+
+def _resolve_version_url():
+    configured_url = str(MYSQL_SHELL_WEB_VERSION_URL or "").strip()
+    if configured_url:
+        return configured_url
+    return _github_raw_version_url_from_remote(_git_remote_origin_url(), _current_git_branch())
+
+
+def _fetch_repo_version(version_url):
+    if not version_url:
+        return "", "Set MYSQL_SHELL_WEB_VERSION_URL when the repository raw version URL cannot be inferred."
+    request_object = urllib.request.Request(
+        version_url,
+        headers={"Accept": "application/json", "User-Agent": "mysql-shell-web-version-check"},
+    )
+    try:
+        with urllib.request.urlopen(request_object, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        return "", str(error)
+    if not isinstance(payload, dict):
+        return "", "Repository version payload is not a JSON object."
+    version = str(payload.get("version", "")).strip()
+    if not version:
+        return "", "Repository version payload does not contain a version."
+    return version, ""
+
+
+def _check_repository_version():
+    app_version = _app_version_payload()["version"]
+    version_url = _resolve_version_url()
+    repo_version, error = _fetch_repo_version(version_url)
+    result = {
+        "checked_at": _utc_now_iso(),
+        "app_version": app_version,
+        "repo_version": repo_version,
+        "version_url": version_url,
+        "error": error,
+        "update_available": bool(repo_version and repo_version != app_version),
+    }
+    set_version_check(result)
+    return result
+
+
+def _current_version_check():
+    app_version = _app_version_payload()["version"]
+    version_check = get_version_check()
+    version_check.setdefault("app_version", app_version)
+    version_check.setdefault("repo_version", "")
+    version_check.setdefault("version_url", _resolve_version_url())
+    version_check.setdefault("error", "")
+    version_check.setdefault("checked_at", "")
+    version_check["update_available"] = bool(
+        version_check.get("repo_version") and version_check.get("repo_version") != app_version
+    )
+    return version_check
+
+
 def _write_update_status(payload):
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
     payload["updated_at"] = _utc_now_iso()
@@ -1046,7 +1176,7 @@ def _start_update_worker():
 
 
 def _redirect_to_login_for_mysql_unavailable(error):
-    profile_name = str(session.get("profile_name", "")).strip()
+    profile_name = get_current_profile_name()
     clear_login_state(keep_profile=True)
     flash(f"MySQL connection is unavailable: {error}", "error")
     redirect_values = {"profile": profile_name} if profile_name else {}
@@ -1056,7 +1186,7 @@ def _redirect_to_login_for_mysql_unavailable(error):
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if not is_logged_in():
+        if not is_logged_in() or not has_server_login_state():
             flash("Log in to continue.", "error")
             return redirect(url_for("login"))
         return view(*args, **kwargs)
@@ -1068,13 +1198,18 @@ def render_dashboard(template_name, **context):
     profile = get_session_profile()
     object_storage_config = context.pop("object_storage_config", None) or load_object_storage_config()
     par_entries = get_par_entries_for_bucket(object_storage_config)
+    version_check = context.pop("version_check", None) or _current_version_check()
     return render_template(
         template_name,
         app_title=APP_TITLE,
         logged_in=is_logged_in(),
-        current_user=session.get("mysql_username", ""),
-        current_profile_name=session.get("profile_name", ""),
+        current_user=get_current_username(),
+        current_profile_name=get_current_profile_name(),
         connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
+        app_version=version_check.get("app_version") or _app_version_payload()["version"],
+        repo_version=version_check.get("repo_version") or "",
+        update_available=bool(version_check.get("update_available")),
+        version_check=version_check,
         nav_groups=NAV_GROUPS,
         current_endpoint=request.endpoint or "",
         object_storage_config=object_storage_config,
@@ -1116,6 +1251,16 @@ def login():
                 set_login_state(profile, username, password)
                 test_mysql_connection(profile, {"username": username, "password": password})
                 flash("Connected to MySQL.", "success")
+                version_check = _check_repository_version()
+                if version_check.get("update_available"):
+                    flash(
+                        "Application update available: "
+                        f"{version_check.get('app_version') or '-'} -> {version_check.get('repo_version') or '-'}.",
+                        "success",
+                    )
+                    return redirect(url_for("update_mysql_shell_web_page"))
+                if version_check.get("error"):
+                    flash(f"Version check skipped: {version_check['error']}", "error")
                 return redirect(url_for("overview_page"))
             except Exception as error:  # pragma: no cover - depends on runtime services
                 clear_login_state(keep_profile=True)
@@ -1301,8 +1446,7 @@ def profile_page():
                 else:
                     save_profiles(remaining)
                     if get_session_profile()["name"].lower() == profile_payload["name"].lower():
-                        session["connection_profile"] = normalize_profile({})
-                        session["profile_name"] = ""
+                        set_session_profile(normalize_profile({}))
                     flash(f"Profile `{profile_payload['name']}` deleted.", "success")
                     return redirect(url_for("profile_page"))
 
@@ -1380,8 +1524,26 @@ def update_mysql_shell_web_page():
         "update_mysql_shell_web.html",
         page_title="Update MySQL Shell Web",
         update_status=_normalize_update_status(),
+        version_check=_current_version_check(),
         status_url=url_for("update_mysql_shell_web_status"),
     )
+
+
+@app.route("/admin/update/retrieve-version", methods=["POST"])
+@login_required
+def update_mysql_shell_web_retrieve_version():
+    version_check = _check_repository_version()
+    if version_check.get("update_available"):
+        flash(
+            "Repository version differs from the running app: "
+            f"{version_check.get('app_version') or '-'} -> {version_check.get('repo_version') or '-'}.",
+            "success",
+        )
+    elif version_check.get("error"):
+        flash(f"Unable to retrieve repository version: {version_check['error']}", "error")
+    else:
+        flash("Repository version matches the running app.", "success")
+    return redirect(url_for("update_mysql_shell_web_page"))
 
 
 @app.route("/admin/update/start", methods=["POST"])
@@ -1518,6 +1680,8 @@ def shell_operations_page():
     config = load_object_storage_config()
     profile = get_session_profile()
     credentials = get_session_credentials()
+    current_username = get_current_username()
+    current_profile_name = get_current_profile_name()
     requested_job_id = str(request.args.get("job_id", "")).strip()
     operation_names = {name for name, _label in SHELL_OPERATION_OPTIONS}
     shell_page = _normalize_shell_operations_page(
@@ -1602,10 +1766,10 @@ def shell_operations_page():
     operation_result = None
 
     if requested_job_id:
-        job_access_profile_name = None if shell_page == "history" else session.get("profile_name", "")
+        job_access_profile_name = None if shell_page == "history" else current_profile_name
         operation_result = build_mysqlsh_job_snapshot(
             requested_job_id,
-            owner_username=session.get("mysql_username", ""),
+            owner_username=current_username,
             owner_profile_name=job_access_profile_name,
         )
         if operation_result is None:
@@ -1793,8 +1957,8 @@ def shell_operations_page():
                         database=profile.get("database", ""),
                         operation=operation,
                         operation_name="dumpInstance",
-                        owner_username=session.get("mysql_username", ""),
-                        owner_profile_name=session.get("profile_name", ""),
+                        owner_username=current_username,
+                        owner_profile_name=current_profile_name,
                         options_json=json.dumps(dump_options, indent=2, sort_keys=True),
                         form_state=form_state,
                         selected_schemas=selected_schemas,
@@ -1825,8 +1989,8 @@ def shell_operations_page():
                         database=profile.get("database", ""),
                         operation=operation,
                         operation_name="dumpSchemas",
-                        owner_username=session.get("mysql_username", ""),
-                        owner_profile_name=session.get("profile_name", ""),
+                        owner_username=current_username,
+                        owner_profile_name=current_profile_name,
                         options_json=json.dumps(dump_options, indent=2, sort_keys=True),
                         form_state=form_state,
                         selected_schemas=selected_schemas,
@@ -1860,15 +2024,15 @@ def shell_operations_page():
                         database=profile.get("database", ""),
                         operation=operation,
                         operation_name="loadDump",
-                        owner_username=session.get("mysql_username", ""),
-                        owner_profile_name=session.get("profile_name", ""),
+                        owner_username=current_username,
+                        owner_profile_name=current_profile_name,
                         options_json=json.dumps(load_options, indent=2, sort_keys=True),
                         form_state=form_state,
                         selected_schemas=selected_schemas,
                         summary_rows=load_summary_rows,
                     )
 
-                session["last_mysqlsh_job_id"] = operation_result["job_id"]
+                set_session_value("last_mysqlsh_job_id", operation_result["job_id"])
                 redirect_values = {
                     "page": operation,
                     "operation": operation,
@@ -1931,7 +2095,7 @@ def shell_operations_page():
     operation_history = []
     if shell_page == "history":
         operation_history = list_mysqlsh_job_history(
-            owner_username=session.get("mysql_username", ""),
+            owner_username=current_username,
             owner_profile_name=None,
             limit=100,
         )
@@ -1990,10 +2154,10 @@ def mysqlsh_job_status_api(job_id):
         request.args.get("operation"),
         request.args.get("view"),
     )
-    job_access_profile_name = None if shell_page == "history" else session.get("profile_name", "")
+    job_access_profile_name = None if shell_page == "history" else get_current_profile_name()
     snapshot = build_mysqlsh_job_snapshot(
         job_id,
-        owner_username=session.get("mysql_username", ""),
+        owner_username=get_current_username(),
         owner_profile_name=job_access_profile_name,
     )
     if snapshot is None:
@@ -2009,10 +2173,10 @@ def mysqlsh_job_cancel(job_id):
         request.form.get("operation"),
         request.form.get("view"),
     )
-    job_access_profile_name = None if next_page == "history" else session.get("profile_name", "")
+    job_access_profile_name = None if next_page == "history" else get_current_profile_name()
     snapshot = cancel_mysqlsh_job(
         job_id,
-        owner_username=session.get("mysql_username", ""),
+        owner_username=get_current_username(),
         owner_profile_name=job_access_profile_name,
     )
     if snapshot is None:
@@ -2027,7 +2191,7 @@ def mysqlsh_job_cancel(job_id):
         flash(f"MySQL Shell {snapshot['operation_name']} already finished with status {snapshot['status_label']}.", "success")
     else:
         flash(f"MySQL Shell {snapshot['operation_name']} job canceled.", "success")
-    session["last_mysqlsh_job_id"] = snapshot["job_id"]
+    set_session_value("last_mysqlsh_job_id", snapshot["job_id"])
     return redirect(
         url_for(
             "shell_operations_page",
@@ -2046,10 +2210,10 @@ def mysqlsh_job_cleanup(job_id):
         request.form.get("operation"),
         request.form.get("view"),
     )
-    job_access_profile_name = None if next_page == "history" else session.get("profile_name", "")
+    job_access_profile_name = None if next_page == "history" else get_current_profile_name()
     snapshot = build_mysqlsh_job_snapshot(
         job_id,
-        owner_username=session.get("mysql_username", ""),
+        owner_username=get_current_username(),
         owner_profile_name=job_access_profile_name,
     )
     if snapshot is None:
@@ -2059,7 +2223,7 @@ def mysqlsh_job_cleanup(job_id):
     try:
         cleanup_mysqlsh_job(
             job_id,
-            owner_username=session.get("mysql_username", ""),
+            owner_username=get_current_username(),
             owner_profile_name=job_access_profile_name,
         )
     except Exception as error:  # pragma: no cover - filesystem/runtime path
@@ -2073,8 +2237,8 @@ def mysqlsh_job_cleanup(job_id):
             )
         )
 
-    if session.get("last_mysqlsh_job_id") == job_id:
-        session.pop("last_mysqlsh_job_id", None)
+    if get_session_value("last_mysqlsh_job_id") == job_id:
+        set_session_value("last_mysqlsh_job_id", "")
     flash(f"MySQL Shell {snapshot['operation_name']} job cleaned up.", "success")
     return redirect(url_for("shell_operations_page", page=next_page, operation=snapshot["operation"]))
 

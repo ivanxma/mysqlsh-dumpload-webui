@@ -14,26 +14,47 @@
           <p class="eyebrow">MySQL Shell</p>
           <h1><a class="topbar-home-link" href="{{ url_for('overview_page') }}">{{ app_title }}</a></h1>
         </div>
-        <div class="topbar-meta">
-          <div>
-            <span class="meta-label">User</span>
-            <strong>{{ current_user or "-" }}</strong>
+        <div class="user-menu" data-user-menu>
+          <button
+            class="user-menu-button"
+            type="button"
+            aria-label="Open user menu"
+            aria-expanded="false"
+            aria-controls="user-menu-panel"
+            data-user-menu-toggle
+          >
+            <svg class="user-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 21a8 8 0 0 0-16 0"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </button>
+          <div class="user-menu-panel" id="user-menu-panel" data-user-menu-panel hidden>
+            <dl class="user-menu-details">
+              <div>
+                <dt>User</dt>
+                <dd>{{ current_user or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Profile</dt>
+                <dd>{{ current_profile_name or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd>{{ app_version or "-" }}{% if update_available %} update available{% endif %}</dd>
+              </div>
+              <div>
+                <dt>Connection</dt>
+                <dd>{{ connection_summary or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Bucket</dt>
+                <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
+              </div>
+            </dl>
+            <form method="post" action="{{ url_for('logout') }}">
+              <button class="button secondary user-menu-logout" type="submit">Logout</button>
+            </form>
           </div>
-          <div>
-            <span class="meta-label">Profile</span>
-            <strong>{{ current_profile_name or "-" }}</strong>
-          </div>
-          <div>
-            <span class="meta-label">Connection</span>
-            <strong>{{ connection_summary or "-" }}</strong>
-          </div>
-          <div>
-            <span class="meta-label">Bucket</span>
-            <strong>{{ object_storage_config.bucket_name or "-" }}</strong>
-          </div>
-          <form method="post" action="{{ url_for('logout') }}">
-            <button class="button secondary" type="submit">Logout</button>
-          </form>
         </div>
       </header>
 
@@ -128,6 +149,45 @@
           button.addEventListener("click", () => {
             setOpenGroup(group.classList.contains("open") ? null : group);
           });
+        });
+      })();
+    </script>
+    <script>
+      (() => {
+        const menu = document.querySelector("[data-user-menu]");
+        if (!menu) {
+          return;
+        }
+        const button = menu.querySelector("[data-user-menu-toggle]");
+        const panel = menu.querySelector("[data-user-menu-panel]");
+        if (!button || !panel) {
+          return;
+        }
+
+        const setOpen = (isOpen) => {
+          menu.classList.toggle("open", isOpen);
+          button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          panel.hidden = !isOpen;
+        };
+
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setOpen(panel.hidden);
+        });
+
+        panel.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+
+        document.addEventListener("click", () => {
+          setOpen(false);
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+            button.focus();
+          }
         });
       })();
     </script>

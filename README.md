@@ -19,6 +19,7 @@
 - Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, retry details, connection profile names, and cleanup actions for completed jobs
 - Uses an app-managed SSH tunnel for SSH-enabled MySQL Shell jobs and keeps that tunnel open for the full `mysqlsh` process
 - Stores progress files, job metadata, and generated MySQL Shell config under a local runtime directory
+- Shows the active user, profile, app version, connection, bucket, and logout action from the top-right user icon menu after login
 - Adds `Admin > Update MySQL Shell Web` to refresh the Git checkout, rerun setup, and restart the configured service
 
 ## Repository Layout
@@ -266,9 +267,17 @@ The Object Storage bucket settings remain local to the checkout in `object_stora
 - SSH-backed `loadDump` jobs automatically retry connection-loss failures by reusing the progress file. Parallel runs retry with `threads=1`; single-threaded runs retry once more with the same options.
 - The private key path in the selected profile must exist on the host where this web app runs.
 
+## Login Session Security
+
+- The browser-visible Flask session cookie contains only app scope/version markers and an opaque server-side session id.
+- MySQL usernames, MySQL passwords, and active connection profiles are held in server-side memory for the active app session and are cleared on logout, connection loss, or login replacement.
+- If the server restarts and the in-memory login entry is gone, authenticated requests are redirected to the login page instead of reusing stale cookie state.
+- Login and authenticated pages send `Cache-Control: no-store` headers to reduce browser and proxy retention of credential-bearing pages.
+
 ## Runtime and Local Files
 
 - `.runtime.env`, `.venv/`, `runtime/`, `tls/`, and `par_registry.json` are local runtime artifacts and are git-ignored.
+- `appver.json` stores the running application version shown in the authenticated header and Admin update page.
 - `.runtime.env` stores the resolved embedded `MYSQLSH_BINARY` path used by the app and systemd services.
 - `profiles.json` is an editable local default file checked into the repo, but environment-specific SSH hosts, usernames, and private key paths should stay local and should not be committed back.
 - `setup.sh` marks tracked `profiles.json` as local-only for the current checkout with `git update-index --skip-worktree` so saved deployment profiles do not block Admin auto-update.
@@ -282,6 +291,8 @@ The Object Storage bucket settings remain local to the checkout in `object_stora
 ## Admin Auto-Update
 
 Use `Admin > Update MySQL Shell Web` after logging in to update the running application from its current Git branch.
+
+On successful login, the app compares local `appver.json` with the repository version file. Set `MYSQL_SHELL_WEB_VERSION_URL` to the raw `appver.json` URL when the GitHub raw URL cannot be inferred from `remote.origin.url`; if the repository version differs, the user is redirected to `Admin > Update MySQL Shell Web`. The update page also provides `Retrieve Repo Version` to rerun that version check without starting an update.
 
 The updater:
 

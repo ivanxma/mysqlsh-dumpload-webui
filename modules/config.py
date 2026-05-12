@@ -5,6 +5,8 @@ from pathlib import Path
 APP_TITLE = "MySQL Shell Web"
 APP_SLUG = "mysql-shell-web"
 ROOT_DIR = Path(__file__).resolve().parent.parent
+APP_VERSION_FILE = ROOT_DIR / "appver.json"
+MYSQL_SHELL_WEB_VERSION_URL = os.environ.get("MYSQL_SHELL_WEB_VERSION_URL", "").strip()
 PROFILE_STORE = ROOT_DIR / "profiles.json"
 OPTION_PROFILE_STORE = ROOT_DIR / "mysqlsh_option_profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
@@ -44,7 +46,7 @@ DEFAULT_OBJECT_STORAGE = {
 MYSQL_SHELL_WEB_SESSION_SCOPE_KEY = "_mysql_shell_web_session_scope"
 MYSQL_SHELL_WEB_SESSION_SCOPE_VALUE = "mysql_shell_web"
 MYSQL_SHELL_WEB_SESSION_VERSION_KEY = "_mysql_shell_web_session_version"
-MYSQL_SHELL_WEB_SESSION_VERSION = 1
+MYSQL_SHELL_WEB_SESSION_VERSION = 2
 MYSQL_SHELL_WEB_SESSION_COOKIE_NAME = (
     os.environ.get("MYSQL_SHELL_WEB_SESSION_COOKIE_NAME", "mysql_shell_web_session").strip()
     or "mysql_shell_web_session"

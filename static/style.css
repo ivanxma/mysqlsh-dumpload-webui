@@ -84,25 +84,101 @@ pre,
   font-family: Georgia, "Times New Roman", serif;
 }
 
-.topbar-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  align-items: center;
-  justify-content: flex-end;
+.topbar-home-link:hover {
+  text-decoration: underline;
 }
 
-.meta-label {
-  display: block;
-  margin-bottom: 4px;
+.user-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.user-menu-button {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel-strong);
+  color: var(--accent-dark);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(71, 44, 17, 0.1);
+}
+
+.user-menu-button:hover,
+.user-menu.open .user-menu-button {
+  border-color: rgba(164, 59, 22, 0.32);
+  background: #fff8f1;
+}
+
+.user-menu-button:focus-visible {
+  outline: 3px solid rgba(164, 59, 22, 0.26);
+  outline-offset: 2px;
+}
+
+.user-menu-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, calc(100vw - 40px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+}
+
+.user-menu-details {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.user-menu-details div {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.42fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.user-menu-details dt {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.topbar-home-link:hover {
-  text-decoration: underline;
+.user-menu-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.user-menu-logout {
+  width: 100%;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .nav-groups {

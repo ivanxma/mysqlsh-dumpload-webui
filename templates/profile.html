@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">Admin</p>
   <h2>Profile</h2>
-  <p>Maintain reusable MySQL connection profiles. Passwords stay in session and are never written to disk.</p>
+  <p>Maintain reusable MySQL connection profiles. Database usernames and passwords stay in server-side memory for the active login only and are never written to cookies or disk.</p>
   {% if not logged_in %}
   <div class="page-header-actions">
     <a class="button secondary" href="{{ url_for('login', profile=selected_profile_name or editing_profile.name) }}">Back to Login</a>
