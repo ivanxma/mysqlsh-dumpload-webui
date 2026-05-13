@@ -10,6 +10,10 @@ from .config import SYSTEM_SCHEMAS
 AUTO_FIX_PRIMARY_KEY_COLUMN = "my_row_id"
 _IDENTIFIER_TOKEN_RE = re.compile(r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_$]*)")
 MYSQL_INTERNAL_SCHEMA_PREFIX = "mysql_"
+LAKEHOUSE_TABLE_PREDICATE = (
+    "(UPPER(COALESCE({engine_column}, '')) = 'LAKEHOUSE' "
+    "OR UPPER(COALESCE({create_options_column}, '')) LIKE '%%SECONDARY_ENGINE=RAPID%%')"
+)
 
 try:
     import paramiko
@@ -542,12 +546,16 @@ def _fetch_table_engine_counts(cursor, schema_names=None, include_tables=None, e
         include_tables=include_tables,
         exclude_tables=exclude_tables,
     )
+    lakehouse_predicate = LAKEHOUSE_TABLE_PREDICATE.format(
+        engine_column="t.ENGINE",
+        create_options_column="t.CREATE_OPTIONS",
+    )
     cursor.execute(
         f"""
         SELECT
           COUNT(*) AS table_count,
           SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) = 'INNODB' THEN 1 ELSE 0 END) AS innodb_table_count,
-          SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) = 'LAKEHOUSE' THEN 1 ELSE 0 END) AS lakehouse_table_count,
+          SUM(CASE WHEN {lakehouse_predicate} THEN 1 ELSE 0 END) AS lakehouse_table_count,
           SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) <> 'INNODB' THEN 1 ELSE 0 END) AS non_innodb_table_count,
           SUM(
             CASE
@@ -640,12 +648,16 @@ def _fetch_lakehouse_table_names(cursor, schema_names=None, include_tables=None,
         include_tables=include_tables,
         exclude_tables=exclude_tables,
     )
+    lakehouse_predicate = LAKEHOUSE_TABLE_PREDICATE.format(
+        engine_column="ENGINE",
+        create_options_column="CREATE_OPTIONS",
+    )
     cursor.execute(
         f"""
         SELECT TABLE_SCHEMA AS schema_name, TABLE_NAME AS table_name
         FROM information_schema.tables
         WHERE TABLE_TYPE = 'BASE TABLE'
-          AND UPPER(COALESCE(ENGINE, '')) = 'LAKEHOUSE'
+          AND {lakehouse_predicate}
           AND TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
           AND TABLE_SCHEMA NOT REGEXP '^mysql_'
           {schema_filter_sql}

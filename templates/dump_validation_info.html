@@ -85,6 +85,7 @@
   <h3>Lakehouse Filtering</h3>
   <p>The Lakehouse count and the generated exclusion list follow the active dump profile filters.</p>
   <ul class="plain-list">
+    <li>Lakehouse detection includes tables with <code>ENGINE=Lakehouse</code> and tables marked with <code>secondary_engine=rapid</code>.</li>
     <li>If <code>includeTables</code> is set, only Lakehouse tables in that include list are counted.</li>
     <li>If <code>includeSchemas</code> is set, only Lakehouse tables in those schemas are counted.</li>
     <li>If <code>excludeTables</code> already removes a Lakehouse table, it is not counted again.</li>

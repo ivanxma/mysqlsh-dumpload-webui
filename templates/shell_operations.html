@@ -72,6 +72,11 @@
       <p class="metric-copy">base tables in scope</p>
     </article>
     <article class="info-card metric-card">
+      <span class="meta-label">Primary Key Check</span>
+      <strong class="metric-value">{{ validation.tables_without_primary_key_count }}</strong>
+      <p class="metric-copy">tables without primary key</p>
+    </article>
+    <article class="info-card metric-card">
       <span class="meta-label">InnoDB Tables</span>
       <strong class="metric-value">{{ validation.innodb_table_count }}</strong>
       <p class="metric-copy">tables with ENGINE=InnoDB</p>
