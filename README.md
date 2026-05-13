@@ -15,6 +15,7 @@
 - Runs MySQL Shell `dumpInstance`, `dumpSchemas`, and `loadDump` jobs from the UI
 - Saves reusable dump and load option profiles so common Shell option sets can be applied without re-entering fields
 - Lets dump option profiles build include/exclude filters from selector-driven tabs for schemas, tables, users, events, routines, triggers, and libraries
+- Provides separate HTML validation references for dump and load workflows from the MySQL Shell menu
 - Shows the generated MySQL Shell Python call using valid Python literals (`True` / `False`) and repo-relative `progressFile` paths when possible
 - Tracks background MySQL Shell jobs with top-level operation tabs plus a consolidated History tab, full Job ID links, retry details, connection profile names, selected-row cleanup, and downloadable history
 - Uses an app-managed SSH tunnel for SSH-enabled MySQL Shell jobs and keeps that tunnel open for the full `mysqlsh` process
@@ -234,12 +235,26 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - The primary key fix flow supports bulk row selection and applies one fix request across the selected tables.
 - When a selected table is partitioned, the automatic primary key fix includes the partition columns together with the `AUTO_INCREMENT` column or the generated invisible `my_row_id` column.
 - Shell Operations uses top-level `dumpInstance`, `dumpSchemas`, `loadDump`, `Option Profiles`, and `History` tabs.
-- `dumpInstance` always shows validation counters for tables without primary keys, `ENGINE=InnoDB`, `ENGINE=Lakehouse`, `secondary_engine=rapid`, and enabled events.
-- `dumpSchemas` shows the same validation counters only after schemas are selected and the `Validation` action is run.
+- Dump validation is enabled after a dump option profile is selected. It checks tables without primary keys, table engines, Lakehouse tables, enabled events, authentication plugins, table character sets, and column character sets.
+- `dumpInstance` validates the selected option profile against all accessible user schemas, excluding system schemas and `mysql_%` schemas.
+- `dumpSchemas` validates the selected option profile only after schemas are selected and the `Validation` action is run.
 - Dump and load option profiles are stored separately, so you can reuse common option sets without reselecting the PAR source/target.
 - Dump option profiles now include selector-driven filter tabs for schemas, tables, users, events, routines, triggers, and libraries, with mutually exclusive include/exclude placement per selected object.
 - The History tab is consolidated for the current MySQL username and shows which saved connection profile and database were used for each recorded job.
 - Finished jobs can be reopened later and cleaned up from the History view once they are no longer active.
+
+## Validation References
+
+The application includes separate HTML reference pages for validation rules and mitigation guidance:
+
+- `MySQL Shell > Dump Validation` at `/mysql-shell/validation/dump`
+- `MySQL Shell > Load Validation` at `/mysql-shell/validation/load`
+
+Dump validation rules cover primary key checks, non-InnoDB engines, Lakehouse table filtering, enabled events, `mysql_native_password` accounts, and table or column character set drift from `utf8mb4` / `utf8mb4_0900_ai_ci`.
+
+Lakehouse filtering is profile-aware. The generated `excludeTables` list includes only Lakehouse tables that remain in scope after the selected dump profile's `includeSchemas`, `excludeSchemas`, `includeTables`, and `excludeTables` filters are applied. If `includeTables` overlaps with the Lakehouse tables that would be excluded, the UI reports an option conflict and blocks the dump until the overlap is resolved.
+
+Load validation rules cover target DB System identity, `server_uuid`, GTID mode, `gtid_executed`, `gtid_purged`, mixed server UUID warnings, and risky load option profile settings such as `loadUsers` off, `updateGTIDSet=off`, or `resetProgress` off.
 
 ## OCI Configuration
 
