@@ -8,9 +8,10 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from uuid import uuid4
 
 import pymysql
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 from modules.config import (
     APP_VERSION_FILE,
@@ -142,6 +143,7 @@ UPDATE_DIR = RUNTIME_DIR / "updates"
 UPDATE_STATUS_FILE = UPDATE_DIR / "mysql_shell_web_update_status.json"
 UPDATE_LOG_FILE = UPDATE_DIR / "mysql_shell_web_update.log"
 UPDATE_WORKER_FILE = ROOT_DIR / "mysql_shell_web_update_worker.py"
+UPDATE_POLL_TOKEN_SESSION_KEY = "mysql_shell_web_update_poll_token"
 
 MYSQL_PAGE_HEALTHCHECK_ENDPOINTS = {
     "overview_page",
@@ -1282,6 +1284,21 @@ def _normalize_update_status(payload=None):
     return status
 
 
+def _update_status_request_authorized(status=None):
+    if has_server_login_state():
+        return True
+    status_payload = status or _read_json_file(UPDATE_STATUS_FILE)
+    expected_token = str(status_payload.get("poll_token", "")).strip()
+    supplied_token = str(session.get(UPDATE_POLL_TOKEN_SESSION_KEY, "")).strip()
+    return bool(expected_token and supplied_token and expected_token == supplied_token)
+
+
+def _public_update_status(status):
+    payload = dict(status or {})
+    payload.pop("poll_token", None)
+    return payload
+
+
 def _start_update_worker():
     current_status = _normalize_update_status()
     if not current_status.get("can_start"):
@@ -1296,6 +1313,8 @@ def _start_update_worker():
     except FileNotFoundError:
         pass
 
+    poll_token = uuid4().hex
+    session[UPDATE_POLL_TOKEN_SESSION_KEY] = poll_token
     status = {
         "state": "running",
         "step": "Queued",
@@ -1304,6 +1323,7 @@ def _start_update_worker():
         "finished_at": "",
         "restart_requested_at": "",
         "service_names": [],
+        "poll_token": poll_token,
     }
     _write_update_status(status)
 
@@ -1696,7 +1716,7 @@ def update_mysql_shell_web_page():
     return render_dashboard(
         "update_mysql_shell_web.html",
         page_title="Update MySQL Shell Web",
-        update_status=_normalize_update_status(),
+        update_status=_public_update_status(_normalize_update_status()),
         version_check=_current_version_check(),
         status_url=url_for("update_mysql_shell_web_status"),
     )
@@ -1731,9 +1751,11 @@ def update_mysql_shell_web_start():
 
 
 @app.route("/admin/update/status")
-@login_required
 def update_mysql_shell_web_status():
-    return jsonify(_normalize_update_status())
+    raw_status = _read_json_file(UPDATE_STATUS_FILE)
+    if not _update_status_request_authorized(raw_status):
+        return jsonify({"state": "error", "message": "Log in to view update status."}), 401
+    return jsonify(_public_update_status(_normalize_update_status(raw_status)))
 
 
 @app.route("/object-storage/par", methods=["GET", "POST"])
