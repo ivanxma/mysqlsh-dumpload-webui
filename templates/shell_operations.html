@@ -120,7 +120,7 @@
   <p class="warning-note">Table Engine: {{ validation.non_innodb_table_count }} tables use an engine different from InnoDB.</p>
   {% endif %}
   {% if validation.lakehouse_table_count %}
-  <p class="warning-note">Lakehouse engine is not supported for this dump workflow. Enable Exclude Lakehouse Tables before running the dump.</p>
+  <p class="warning-note">Lakehouse engine is not supported for this dump workflow. Enable Exclude Lakehouse Tables in the selected dump option profile before running the dump.</p>
   {% endif %}
   {% if validation.lakehouse_include_table_conflicts %}
   <p class="warning-note">Option Conflict: <code>includeTables</code> includes {{ validation.lakehouse_include_table_conflicts|length }} Lakehouse tables that would also be excluded by Exclude Lakehouse Tables. Review the overlap before running the dump.</p>
@@ -417,10 +417,6 @@
           <input name="dump_instance_tz_utc" type="checkbox" value="1" {% if form_state.dump_instance_tz_utc %}checked{% endif %}>
           <span>Convert timestamps to UTC</span>
         </label>
-        <label class="checkbox-field">
-          <input name="dump_instance_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_instance_exclude_lakehouse_tables %}checked{% endif %}>
-          <span>Exclude Lakehouse tables</span>
-        </label>
       </div>
     </details>
 
@@ -472,6 +468,10 @@
       {% if filter_errors.catalog %}
       <p class="help-text full-span">{{ filter_errors.catalog }}</p>
       {% endif %}
+      <label class="checkbox-field full-span">
+        <input name="dump_instance_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_instance_exclude_lakehouse_tables %}checked{% endif %}>
+        <span>Exclude Lakehouse tables from generated <code>excludeTables</code></span>
+      </label>
 
       <div class="tab-shell dump-filter-tab-shell full-span" data-tab-shell data-default-tab="dump-filter-schemas">
         <div class="tab-bar" role="tablist">
@@ -1000,11 +1000,6 @@
         {% endfor %}
       </select>
     </label>
-    <label class="checkbox-field full-span">
-      <input name="dump_instance_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_instance_exclude_lakehouse_tables %}checked{% endif %}>
-      <span>Exclude Lakehouse tables from generated <code>excludeTables</code></span>
-    </label>
-
     <div class="form-actions full-span">
       <button class="button primary" type="submit" name="validation_action" value="dump-instance" {% if not selected_dump_option_profile %}disabled{% endif %}>Validation</button>
       <button class="button primary" type="submit">Run dumpInstance</button>
@@ -1062,11 +1057,6 @@
     {% if schema_error %}
     <p class="help-text full-span">{{ schema_error }}</p>
     {% endif %}
-    <label class="checkbox-field full-span">
-      <input name="dump_schemas_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_schemas_exclude_lakehouse_tables %}checked{% endif %}>
-      <span>Exclude Lakehouse tables from generated <code>excludeTables</code></span>
-    </label>
-
     {% if dump_schemas_validation %}
     {{ render_dump_validation(dump_schemas_validation, dump_schemas_validation_scope, form_state.dump_schemas_events) }}
     {% endif %}
