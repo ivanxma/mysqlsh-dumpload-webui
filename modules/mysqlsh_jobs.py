@@ -420,15 +420,6 @@ def _extract_percent_from_text(*texts):
     return None
 
 
-def _last_nonempty_line(*texts):
-    for text in reversed(texts):
-        for line in reversed((text or "").splitlines()):
-            candidate = line.strip()
-            if candidate:
-                return candidate
-    return ""
-
-
 def _build_progress_snapshot(metadata, stdout_text, stderr_text):
     percent = None
     info_lines = []
@@ -441,17 +432,11 @@ def _build_progress_snapshot(metadata, stdout_text, stderr_text):
                     progress_payload = json.load(handle)
                 percent, info_lines = _extract_progress_from_json(progress_payload)
             except (OSError, json.JSONDecodeError):
-                progress_text = _read_text_tail(progress_path, max_chars=8000)
-                if progress_text:
-                    info_lines.append(progress_text)
+                pass
 
     if percent is None:
         percent = _extract_percent_from_text(stdout_text, stderr_text)
 
-    if not info_lines:
-        last_line = _last_nonempty_line(stderr_text, stdout_text)
-        if last_line:
-            info_lines.append(last_line)
     if not info_lines:
         error_text = str(metadata.get("error", "")).strip()
         if error_text:

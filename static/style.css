@@ -748,6 +748,11 @@ pre,
   background: var(--warning-bg);
 }
 
+.badge.danger {
+  color: var(--error-text);
+  background: var(--error-bg);
+}
+
 .badge.muted {
   color: var(--muted);
   background: rgba(143, 136, 127, 0.18);
@@ -871,6 +876,58 @@ tbody tr:last-child td {
   border-radius: 14px;
   background: var(--warning-bg);
   color: var(--warning-text);
+}
+
+.validation-detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.validation-detail {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 253, 249, 0.84);
+}
+
+.validation-detail summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.validation-detail .table-wrap,
+.validation-detail .plain-list {
+  margin-top: 12px;
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 8px 10px;
+}
+
+.gtid-status-card {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 249, 0.92);
+}
+
+.gtid-status-card.empty {
+  border-color: rgba(29, 101, 56, 0.28);
+  background: var(--success-bg);
+}
+
+.gtid-status-card.mixed {
+  border-color: rgba(146, 47, 35, 0.32);
+  background: var(--error-bg);
+}
+
+.gtid-status-card h4,
+.gtid-status-card p {
+  margin: 0;
 }
 
 .plain-list {

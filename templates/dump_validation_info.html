@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL Shell</p>
+  <h2>Dump Validation</h2>
+  <p>Dump validation reviews the selected dump option profile before <code>dumpInstance</code> or <code>dumpSchemas</code> runs.</p>
+</section>
+
+<section class="panel doc-section">
+  <h3>Validation Scope</h3>
+  <p>Validation is enabled after a dump option profile is selected. The checks use the effective profile filters, not every table in the DB System.</p>
+  <ul class="plain-list">
+    <li><code>dumpInstance</code> starts from all accessible user schemas.</li>
+    <li><code>dumpSchemas</code> starts from the schemas selected on the operation page.</li>
+    <li><code>includeSchemas</code> narrows the schema scope.</li>
+    <li><code>excludeSchemas</code> removes schemas from the scope.</li>
+    <li><code>includeTables</code> narrows validation to those fully qualified tables.</li>
+    <li><code>excludeTables</code> removes those fully qualified tables from validation.</li>
+    <li>System schemas and <code>mysql_%</code> schemas are hidden and ignored.</li>
+  </ul>
+</section>
+
+<section class="panel doc-section">
+  <h3>Validation Rules</h3>
+  <div class="info-grid validation-grid">
+    <article class="info-card metric-card">
+      <span class="meta-label">Primary Key</span>
+      <strong class="metric-value">Required</strong>
+      <p class="metric-copy">Tables without a primary key are flagged.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Engine</span>
+      <strong class="metric-value">InnoDB</strong>
+      <p class="metric-copy">Non-InnoDB engines are flagged.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Lakehouse</span>
+      <strong class="metric-value">Excluded</strong>
+      <p class="metric-copy">Lakehouse tables are not supported.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Events</span>
+      <strong class="metric-value">Review</strong>
+      <p class="metric-copy">Enabled events are flagged.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Auth Plugin</span>
+      <strong class="metric-value">Review</strong>
+      <p class="metric-copy"><code>mysql_native_password</code> is flagged.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Charset</span>
+      <strong class="metric-value">utf8mb4</strong>
+      <p class="metric-copy">Table and column charset drift is flagged.</p>
+    </article>
+  </div>
+</section>
+
+<section class="panel doc-section">
+  <h3>Mitigation</h3>
+  <details class="validation-detail" open>
+    <summary>Primary key check</summary>
+    <p>Open <code>Admin &gt; DB Admin</code>, review the primary-key section, and apply the suggested fix where appropriate. The app can add an invisible auto-increment primary key for eligible tables, or reuse an existing auto-increment column when one exists.</p>
+  </details>
+  <details class="validation-detail" open>
+    <summary>Lakehouse tables</summary>
+    <p>Enable <strong>Exclude Lakehouse tables</strong> on the dump operation or save it in the dump option profile. The app adds in-scope Lakehouse tables to <code>excludeTables</code>.</p>
+  </details>
+  <details class="validation-detail">
+    <summary>Events</summary>
+    <p>Disable events before dumping, exclude event objects in the dump profile, or confirm that restoring enabled events into the target DB will not change data unexpectedly.</p>
+  </details>
+  <details class="validation-detail">
+    <summary>Authentication plugins</summary>
+    <p>Review accounts using <code>mysql_native_password</code> and migrate them to a supported authentication plugin before relying on future MySQL versions.</p>
+  </details>
+  <details class="validation-detail">
+    <summary>Character set and collation</summary>
+    <p>Review tables and columns that differ from <code>utf8mb4</code> and <code>utf8mb4_0900_ai_ci</code>. Convert only after application compatibility has been checked.</p>
+  </details>
+</section>
+
+<section class="panel doc-section">
+  <h3>Lakehouse Filtering</h3>
+  <p>The Lakehouse count and the generated exclusion list follow the active dump profile filters.</p>
+  <ul class="plain-list">
+    <li>If <code>includeTables</code> is set, only Lakehouse tables in that include list are counted.</li>
+    <li>If <code>includeSchemas</code> is set, only Lakehouse tables in those schemas are counted.</li>
+    <li>If <code>excludeTables</code> already removes a Lakehouse table, it is not counted again.</li>
+    <li>If <code>Exclude Lakehouse tables</code> and <code>includeTables</code> overlap, validation shows an option conflict and the run is blocked until the overlap is resolved.</li>
+  </ul>
+</section>
+{% endblock %}

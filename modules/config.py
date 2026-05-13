@@ -89,6 +89,8 @@ NAV_GROUPS = [
         "label": "MySQL Shell",
         "items": [
             {"endpoint": "shell_operations_page", "label": "Operations"},
+            {"endpoint": "dump_validation_info_page", "label": "Dump Validation"},
+            {"endpoint": "load_validation_info_page", "label": "Load Validation"},
         ],
     },
 ]

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL Shell</p>
+  <h2>Load Validation</h2>
+  <p>Load validation focuses on target identity, GTID state, and load option profile safety before <code>loadDump</code> runs.</p>
+</section>
+
+<section class="panel doc-section">
+  <h3>Target Checks</h3>
+  <p>The <code>loadDump</code> page displays the target DB System information before execution.</p>
+  <ul class="plain-list">
+    <li>DB System hostname and version</li>
+    <li>server UUID and server ID</li>
+    <li>GTID mode</li>
+    <li><code>gtid_executed</code> and <code>gtid_purged</code></li>
+    <li>other server UUIDs found in GTID state</li>
+  </ul>
+</section>
+
+<section class="panel doc-section">
+  <h3>GTID Rules</h3>
+  <div class="info-grid validation-grid">
+    <article class="info-card metric-card">
+      <span class="meta-label">Empty GTID</span>
+      <strong class="metric-value">Green</strong>
+      <p class="metric-copy">No executed or purged GTID is present.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Local GTID</span>
+      <strong class="metric-value">Info</strong>
+      <p class="metric-copy">GTID only references the target server UUID.</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Mixed GTID</span>
+      <strong class="metric-value">Red</strong>
+      <p class="metric-copy">GTID includes a different server UUID.</p>
+    </article>
+  </div>
+  <p class="warning-note">A mixed GTID warning means the target may already contain transactions from another server. Review the target before loading data.</p>
+</section>
+
+<section class="panel doc-section">
+  <h3>Option Profile Checks</h3>
+  <p>The load option profile editor warns and asks for confirmation when risky settings are saved.</p>
+  <ul class="plain-list">
+    <li><code>loadUsers</code> is not checked.</li>
+    <li><code>updateGTIDSet</code> is <code>off</code>.</li>
+    <li><code>resetProgress</code> is off.</li>
+  </ul>
+</section>
+
+<section class="panel doc-section">
+  <h3>Mitigation</h3>
+  <details class="validation-detail" open>
+    <summary>Mixed GTID state</summary>
+    <p>Confirm the target DB System is the intended restore target. If the target should be empty, inspect existing data and GTID state before running <code>loadDump</code>.</p>
+  </details>
+  <details class="validation-detail" open>
+    <summary>updateGTIDSet</summary>
+    <p>Choose the MySQL Shell <code>updateGtidSet</code> mode that matches the restore plan. Keep it off only when you intentionally do not want the dump GTID state applied.</p>
+  </details>
+  <details class="validation-detail">
+    <summary>resetProgress</summary>
+    <p>Enable <code>resetProgress</code> for a fresh load. Leave it off only when intentionally resuming from an existing progress file.</p>
+  </details>
+  <details class="validation-detail">
+    <summary>loadUsers</summary>
+    <p>Enable <code>loadUsers</code> when user accounts from the dump should be restored. Leave it off only when target accounts are managed separately.</p>
+  </details>
+</section>
+{% endblock %}

@@ -62,6 +62,215 @@
 </section>
 {% endmacro %}
 
+{% macro render_dump_validation(validation, scope_text, event_option_enabled) %}
+<div class="full-span validation-stack">
+  <p class="help-text">Validation Checks are based on {{ scope_text|lower }}.</p>
+  <div class="info-grid validation-grid">
+    <article class="info-card metric-card">
+      <span class="meta-label">Tables</span>
+      <strong class="metric-value">{{ validation.table_count }}</strong>
+      <p class="metric-copy">base tables in scope</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">InnoDB Tables</span>
+      <strong class="metric-value">{{ validation.innodb_table_count }}</strong>
+      <p class="metric-copy">tables with ENGINE=InnoDB</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Lakehouse Tables</span>
+      <strong class="metric-value">{{ validation.lakehouse_table_count }}</strong>
+      <p class="metric-copy">tables with ENGINE=Lakehouse</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Non-InnoDB Tables</span>
+      <strong class="metric-value">{{ validation.non_innodb_table_count }}</strong>
+      <p class="metric-copy">tables with another engine</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Events</span>
+      <strong class="metric-value">{{ validation.enabled_event_count }} / {{ validation.event_count }}</strong>
+      <p class="metric-copy">enabled / total events</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Native Password Users</span>
+      <strong class="metric-value">{{ validation.mysql_native_password_count }}</strong>
+      <p class="metric-copy">mysql_native_password accounts</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Table Charset Drift</span>
+      <strong class="metric-value">{{ validation.non_standard_table_charset_count }}</strong>
+      <p class="metric-copy">not utf8mb4 / utf8mb4_0900_ai_ci</p>
+    </article>
+    <article class="info-card metric-card">
+      <span class="meta-label">Column Charset Drift</span>
+      <strong class="metric-value">{{ validation.non_standard_column_charset_count }}</strong>
+      <p class="metric-copy">not utf8mb4 / utf8mb4_0900_ai_ci</p>
+    </article>
+  </div>
+
+  {% if validation.tables_without_primary_key_count %}
+  <p class="warning-note">Validation Rule - Primary Key Check: {{ validation.tables_without_primary_key_count }} tables without primary key were found. Review them in <code>Admin &gt; DB Admin</code>.</p>
+  {% endif %}
+  {% if validation.non_innodb_table_count %}
+  <p class="warning-note">Table Engine: {{ validation.non_innodb_table_count }} tables use an engine different from InnoDB.</p>
+  {% endif %}
+  {% if validation.lakehouse_table_count %}
+  <p class="warning-note">Lakehouse engine is not supported for this dump workflow. Enable Exclude Lakehouse Tables before running the dump.</p>
+  {% endif %}
+  {% if validation.lakehouse_include_table_conflicts %}
+  <p class="warning-note">Option Conflict: <code>includeTables</code> includes {{ validation.lakehouse_include_table_conflicts|length }} Lakehouse tables that would also be excluded by Exclude Lakehouse Tables. Review the overlap before running the dump.</p>
+  {% elif validation.has_include_table_filter %}
+  <p class="help-text">The Lakehouse table count is limited to the active <code>includeTables</code> filter.</p>
+  {% elif validation.has_include_schema_filter or validation.has_exclude_schema_filter or validation.has_exclude_table_filter %}
+  <p class="help-text">The Lakehouse table count reflects the active schema/table filters in the selected option profile.</p>
+  {% endif %}
+  {% if event_option_enabled and validation.enabled_event_count %}
+  <p class="warning-note">Enabled Events: {{ validation.enabled_event_count }} enabled events are included by the selected dump options. Enabled Event when restored to TargetDB might get data changed.</p>
+  {% endif %}
+  {% if validation.mysql_native_password_count %}
+  <p class="warning-note">Authentication Plugin: {{ validation.mysql_native_password_count }} accounts use <code>mysql_native_password</code>, which is deprecated or removed in future MySQL versions.</p>
+  {% endif %}
+  {% if validation.auth_plugin_error %}
+  <p class="warning-note">Authentication Plugin: {{ validation.auth_plugin_error }}</p>
+  {% endif %}
+  {% if validation.non_standard_table_charset_count or validation.non_standard_column_charset_count %}
+  <p class="warning-note">Character Set / Collation: {{ validation.non_standard_table_charset_count }} tables and {{ validation.non_standard_column_charset_count }} columns differ from <code>utf8mb4</code> / <code>utf8mb4_0900_ai_ci</code>.</p>
+  {% endif %}
+
+  <div class="validation-detail-grid">
+    <details class="validation-detail">
+      <summary>Table engines</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Engine</th><th>Tables</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.table_engine_counts %}
+            <tr><td>{{ row.engine_name }}</td><td>{{ row.table_count }}</td></tr>
+            {% else %}
+            <tr><td colspan="2">No table engine data.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="validation-detail">
+      <summary>Lakehouse tables</summary>
+      <ul class="plain-list">
+        {% for table_name in validation.lakehouse_tables %}
+        <li><code>{{ table_name }}</code></li>
+        {% else %}
+        <li>No Lakehouse tables in scope.</li>
+        {% endfor %}
+      </ul>
+    </details>
+
+    {% if validation.lakehouse_include_table_conflicts %}
+    <details class="validation-detail" open>
+      <summary>Lakehouse includeTables overlap</summary>
+      <ul class="plain-list">
+        {% for table_name in validation.lakehouse_include_table_conflicts %}
+        <li><code>{{ table_name }}</code></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    <details class="validation-detail">
+      <summary>User authentication plugins</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Plugin</th><th>Users</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.auth_plugin_counts %}
+            <tr><td>{{ row.plugin_name }}</td><td>{{ row.user_count }}</td></tr>
+            {% else %}
+            <tr><td colspan="2">No authentication plugin data.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="validation-detail">
+      <summary>Table charset and collation summary</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Charset</th><th>Collation</th><th>Tables</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.table_charset_counts %}
+            <tr><td>{{ row.charset_name }}</td><td>{{ row.collation_name }}</td><td>{{ row.table_count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No table charset data.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="validation-detail">
+      <summary>Non-standard table charset list</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Table</th><th>Charset</th><th>Collation</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.non_standard_table_charsets %}
+            <tr><td><code>{{ row.object_name }}</code></td><td>{{ row.charset_name }}</td><td>{{ row.collation_name }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No non-standard table charsets.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="validation-detail">
+      <summary>Column charset and collation summary</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Charset</th><th>Collation</th><th>Columns</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.column_charset_counts %}
+            <tr><td>{{ row.charset_name }}</td><td>{{ row.collation_name }}</td><td>{{ row.column_count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No character column data.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="validation-detail">
+      <summary>Non-standard column charset list</summary>
+      <div class="table-wrap">
+        <table class="data-table compact-table">
+          <thead>
+            <tr><th>Column</th><th>Charset</th><th>Collation</th></tr>
+          </thead>
+          <tbody>
+            {% for row in validation.non_standard_column_charsets %}
+            <tr><td><code>{{ row.object_name }}</code></td><td>{{ row.charset_name }}</td><td>{{ row.collation_name }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No non-standard column charsets.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">MySQL Shell</p>
@@ -202,6 +411,10 @@
         <label class="checkbox-field">
           <input name="dump_instance_tz_utc" type="checkbox" value="1" {% if form_state.dump_instance_tz_utc %}checked{% endif %}>
           <span>Convert timestamps to UTC</span>
+        </label>
+        <label class="checkbox-field">
+          <input name="dump_instance_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_instance_exclude_lakehouse_tables %}checked{% endif %}>
+          <span>Exclude Lakehouse tables</span>
         </label>
       </div>
     </details>
@@ -393,7 +606,7 @@
   </form>
 
   {% else %}
-  <form method="post" class="form-grid">
+  <form method="post" class="form-grid" data-load-option-profile-form>
     <input type="hidden" name="page" value="option-profiles">
     <input type="hidden" name="operation" value="option-profiles">
     <input type="hidden" name="option_profile_kind" value="load">
@@ -418,6 +631,7 @@
       <input name="load_option_profile_edit_name" type="text" value="{{ load_option_profile_edit_name }}" placeholder="restore-fast">
     </label>
     <p class="help-text full-span">Load profiles are reused by <code>loadDump</code> runs.</p>
+    <p class="warning-note full-span" data-load-profile-warning hidden></p>
 
     <label>
       Threads
@@ -631,7 +845,7 @@
     </details>
 
     <div class="form-actions full-span">
-      <button class="button primary" type="submit" name="option_profile_action" value="save">Save / Update Profile</button>
+      <button class="button primary" type="submit" name="option_profile_action" value="save" data-load-profile-save>Save / Update Profile</button>
       <button class="button secondary danger" type="submit" name="option_profile_action" value="delete" {% if not selected_load_option_profile_name %}disabled{% endif %}>Delete Profile</button>
     </div>
   </form>
@@ -769,42 +983,7 @@
     <button type="submit" name="option_profile_action" value="apply" data-option-profile-apply hidden>Apply Profile</button>
 
     {% if dump_instance_validation %}
-    <div class="full-span validation-stack">
-      <p class="help-text">Validation Checks are based on {{ dump_instance_validation_scope|lower }}.</p>
-      <div class="info-grid validation-grid">
-        <article class="info-card metric-card">
-          <span class="meta-label">Primary Key Check</span>
-          <strong class="metric-value">{{ dump_instance_validation.tables_without_primary_key_count }}</strong>
-          <p class="metric-copy">tables without primary key</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">InnoDB Tables</span>
-          <strong class="metric-value">{{ dump_instance_validation.innodb_table_count }}</strong>
-          <p class="metric-copy">tables with ENGINE=InnoDB</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Lakehouse Tables</span>
-          <strong class="metric-value">{{ dump_instance_validation.lakehouse_table_count }}</strong>
-          <p class="metric-copy">tables with ENGINE=Lakehouse</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Secondary Engine RAPID</span>
-          <strong class="metric-value">{{ dump_instance_validation.rapid_secondary_engine_table_count }}</strong>
-          <p class="metric-copy">tables with <code>secondary_engine=rapid</code></p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Enabled Events</span>
-          <strong class="metric-value">{{ dump_instance_validation.enabled_event_count }}</strong>
-          <p class="metric-copy">enabled events in scope</p>
-        </article>
-      </div>
-      {% if dump_instance_validation.tables_without_primary_key_count %}
-      <p class="warning-note">Primary Key Check: {{ dump_instance_validation.tables_without_primary_key_count }} tables without primary key were found. Review them in <code>Admin &gt; DB Admin</code>.</p>
-      {% endif %}
-      {% if form_state.dump_instance_events and dump_instance_validation.enabled_event_count %}
-      <p class="warning-note">Enabled Events: {{ dump_instance_validation.enabled_event_count }} enabled events are included by the selected dump options. Enabled Event when restored to TargetDB might get data changed.</p>
-      {% endif %}
-    </div>
+    {{ render_dump_validation(dump_instance_validation, dump_instance_validation_scope, form_state.dump_instance_events) }}
     {% endif %}
 
     <label>
@@ -816,10 +995,18 @@
         {% endfor %}
       </select>
     </label>
+    <label class="checkbox-field full-span">
+      <input name="dump_instance_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_instance_exclude_lakehouse_tables %}checked{% endif %}>
+      <span>Exclude Lakehouse tables from generated <code>excludeTables</code></span>
+    </label>
 
     <div class="form-actions full-span">
+      <button class="button primary" type="submit" name="validation_action" value="dump-instance" {% if not selected_dump_option_profile %}disabled{% endif %}>Validation</button>
       <button class="button primary" type="submit">Run dumpInstance</button>
     </div>
+    {% if not selected_dump_option_profile %}
+    <p class="help-text full-span">Select a dump option profile to enable validation.</p>
+    {% endif %}
   </form>
 </section>
 
@@ -870,50 +1057,22 @@
     {% if schema_error %}
     <p class="help-text full-span">{{ schema_error }}</p>
     {% endif %}
+    <label class="checkbox-field full-span">
+      <input name="dump_schemas_exclude_lakehouse_tables" type="checkbox" value="1" {% if form_state.dump_schemas_exclude_lakehouse_tables %}checked{% endif %}>
+      <span>Exclude Lakehouse tables from generated <code>excludeTables</code></span>
+    </label>
 
     {% if dump_schemas_validation %}
-    <div class="full-span validation-stack">
-      <p class="help-text">Validation Checks are based on {{ dump_schemas_validation_scope|lower }}.</p>
-      <div class="info-grid validation-grid">
-        <article class="info-card metric-card">
-          <span class="meta-label">Primary Key Check</span>
-          <strong class="metric-value">{{ dump_schemas_validation.tables_without_primary_key_count }}</strong>
-          <p class="metric-copy">tables without primary key</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">InnoDB Tables</span>
-          <strong class="metric-value">{{ dump_schemas_validation.innodb_table_count }}</strong>
-          <p class="metric-copy">tables with ENGINE=InnoDB</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Lakehouse Tables</span>
-          <strong class="metric-value">{{ dump_schemas_validation.lakehouse_table_count }}</strong>
-          <p class="metric-copy">tables with ENGINE=Lakehouse</p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Secondary Engine RAPID</span>
-          <strong class="metric-value">{{ dump_schemas_validation.rapid_secondary_engine_table_count }}</strong>
-          <p class="metric-copy">tables with <code>secondary_engine=rapid</code></p>
-        </article>
-        <article class="info-card metric-card">
-          <span class="meta-label">Enabled Events</span>
-          <strong class="metric-value">{{ dump_schemas_validation.enabled_event_count }}</strong>
-          <p class="metric-copy">enabled events in scope</p>
-        </article>
-      </div>
-      {% if dump_schemas_validation.tables_without_primary_key_count %}
-      <p class="warning-note">Primary Key Check: {{ dump_schemas_validation.tables_without_primary_key_count }} tables without primary key were found in {{ dump_schemas_validation_scope|lower }}. Review them in <code>Admin &gt; DB Admin</code>.</p>
-      {% endif %}
-      {% if form_state.dump_schemas_events and dump_schemas_validation.enabled_event_count %}
-      <p class="warning-note">Enabled Events: {{ dump_schemas_validation.enabled_event_count }} enabled events are included by the selected dump options. Enabled Event when restored to TargetDB might get data changed.</p>
-      {% endif %}
-    </div>
+    {{ render_dump_validation(dump_schemas_validation, dump_schemas_validation_scope, form_state.dump_schemas_events) }}
     {% endif %}
 
     <div class="form-actions full-span">
-      <button class="button primary" type="submit" name="validation_action" value="dump-schemas">Validation</button>
+      <button class="button primary" type="submit" name="validation_action" value="dump-schemas" {% if not selected_dump_option_profile %}disabled{% endif %}>Validation</button>
       <button class="button primary" type="submit">Run dumpSchemas</button>
     </div>
+    {% if not selected_dump_option_profile %}
+    <p class="help-text full-span">Select a dump option profile to enable validation.</p>
+    {% endif %}
   </form>
 </section>
 
@@ -921,6 +1080,51 @@
 <section class="panel">
   <h3>loadDump</h3>
   <p class="help-text">Select a saved load option profile here. Detailed option editing lives in the top-level <code>Option Profiles</code> tab.</p>
+  {% if load_target_gtid_context %}
+  <article class="gtid-status-card {{ load_target_gtid_context.state }}" data-load-gtid-card>
+    <div class="panel-header">
+      <div>
+        <h4>Target DB System &amp; GTID</h4>
+        <p data-load-gtid-message>{{ load_target_gtid_context.message }}</p>
+      </div>
+      <span class="badge {{ load_target_gtid_context.badge_class }}" data-load-gtid-badge>{{ load_target_gtid_context.badge_label }}</span>
+    </div>
+    <dl class="detail-list compact detail-list-inline">
+      <div>
+        <dt>DB System</dt>
+        <dd data-load-gtid-server-host>{{ load_target_gtid_context.server_host or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Version</dt>
+        <dd data-load-gtid-version>{{ load_target_gtid_context.version or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Server UUID</dt>
+        <dd data-load-gtid-server-uuid>{{ load_target_gtid_context.server_uuid or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Server ID</dt>
+        <dd data-load-gtid-server-id>{{ load_target_gtid_context.server_id or "-" }}</dd>
+      </div>
+      <div>
+        <dt>GTID Mode</dt>
+        <dd data-load-gtid-mode>{{ load_target_gtid_context.gtid_mode or "-" }}</dd>
+      </div>
+      <div>
+        <dt>GTID Executed</dt>
+        <dd data-load-gtid-executed>{{ load_target_gtid_context.gtid_executed or "-" }}</dd>
+      </div>
+      <div>
+        <dt>GTID Purged</dt>
+        <dd data-load-gtid-purged>{{ load_target_gtid_context.gtid_purged or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Other Server UUIDs</dt>
+        <dd data-load-gtid-other-uuids>{{ load_target_gtid_context.other_server_uuids|join(", ") or "-" }}</dd>
+      </div>
+    </dl>
+  </article>
+  {% endif %}
   <form method="post" class="form-grid">
     <input type="hidden" name="page" value="load-dump">
     <input type="hidden" name="operation" value="load-dump">
@@ -1006,7 +1210,7 @@
         {% endif %}
       ></div>
     </div>
-    <pre class="job-progress-info" data-job-progress-info>{{ operation_result.progress_info or "Waiting for progress output..." }}</pre>
+    <pre class="job-progress-info" data-job-progress-info {% if not operation_result.progress_info %}hidden{% endif %}>{{ operation_result.progress_info }}</pre>
   </div>
   <div class="tab-shell" data-tab-shell data-default-tab="result-summary">
     <div class="tab-bar" role="tablist">
@@ -1315,6 +1519,56 @@
       dumpEventsToggle.addEventListener("change", syncDumpEventsState);
       syncDumpEventsState();
     }
+
+    const loadOptionProfileForm = document.querySelector("[data-load-option-profile-form]");
+    if (loadOptionProfileForm) {
+      const warningNode = loadOptionProfileForm.querySelector("[data-load-profile-warning]");
+      const loadUsersInput = loadOptionProfileForm.querySelector('[name="load_dump_load_users"]');
+      const resetProgressInput = loadOptionProfileForm.querySelector('[name="load_dump_reset_progress"]');
+      const updateGtidSetInput = loadOptionProfileForm.querySelector('[name="load_dump_update_gtid_set"]');
+
+      const loadProfileWarnings = () => {
+        const warnings = [];
+        if (loadUsersInput && !loadUsersInput.checked) {
+          warnings.push("loadUsers is not checked");
+        }
+        if (updateGtidSetInput && updateGtidSetInput.value === "off") {
+          warnings.push("updateGTIDSet is off");
+        }
+        if (resetProgressInput && !resetProgressInput.checked) {
+          warnings.push("resetProgress is off");
+        }
+        return warnings;
+      };
+
+      const syncLoadProfileWarning = () => {
+        const warnings = loadProfileWarnings();
+        if (!warningNode) {
+          return;
+        }
+        warningNode.hidden = warnings.length === 0;
+        warningNode.textContent = warnings.length
+          ? `Warning: ${warnings.join("; ")}.`
+          : "";
+      };
+
+      [loadUsersInput, resetProgressInput, updateGtidSetInput]
+        .filter(Boolean)
+        .forEach((input) => input.addEventListener("change", syncLoadProfileWarning));
+
+      loadOptionProfileForm.addEventListener("submit", (event) => {
+        const submitter = event.submitter;
+        if (!submitter || !submitter.matches("[data-load-profile-save]")) {
+          return;
+        }
+        const warnings = loadProfileWarnings();
+        if (warnings.length && !window.confirm(`Save this load option profile with these warnings?\n\n${warnings.join("\n")}`)) {
+          event.preventDefault();
+        }
+      });
+
+      syncLoadProfileWarning();
+    }
   })();
 </script>
 {% if operation_result %}
@@ -1337,6 +1591,7 @@
     const scriptNode = shell.querySelector("[data-job-script]");
     const cancelForm = shell.querySelector("[data-job-cancel-form]");
     const cleanupForm = shell.querySelector("[data-job-cleanup-form]");
+    const loadGtidCard = document.querySelector("[data-load-gtid-card]");
 
     const appendSummaryRow = (label, value, options = {}) => {
       const row = document.createElement("div");
@@ -1369,12 +1624,49 @@
       appendSummaryRow("Duration", snapshot.duration_text || "-", { dataAttribute: "data-job-duration" });
     };
 
+    const setLoadGtidText = (selector, value) => {
+      if (!loadGtidCard) {
+        return;
+      }
+      const node = loadGtidCard.querySelector(selector);
+      if (node) {
+        node.textContent = value || "-";
+      }
+    };
+
+    const renderLoadGtidContext = (context) => {
+      if (!loadGtidCard || !context) {
+        return;
+      }
+      loadGtidCard.className = `gtid-status-card ${context.state || ""}`;
+      const badge = loadGtidCard.querySelector("[data-load-gtid-badge]");
+      if (badge) {
+        badge.className = `badge ${context.badge_class || "muted"}`;
+        badge.textContent = context.badge_label || "GTID";
+      }
+      setLoadGtidText("[data-load-gtid-message]", context.message);
+      setLoadGtidText("[data-load-gtid-server-host]", context.server_host);
+      setLoadGtidText("[data-load-gtid-version]", context.version);
+      setLoadGtidText("[data-load-gtid-server-uuid]", context.server_uuid);
+      setLoadGtidText("[data-load-gtid-server-id]", context.server_id);
+      setLoadGtidText("[data-load-gtid-mode]", context.gtid_mode);
+      setLoadGtidText("[data-load-gtid-executed]", context.gtid_executed);
+      setLoadGtidText("[data-load-gtid-purged]", context.gtid_purged);
+      setLoadGtidText(
+        "[data-load-gtid-other-uuids]",
+        Array.isArray(context.other_server_uuids) && context.other_server_uuids.length
+          ? context.other_server_uuids.join(", ")
+          : ""
+      );
+    };
+
     const renderSnapshot = (snapshot) => {
       renderSummary(snapshot);
       statusBadge.textContent = snapshot.status_label;
       statusBadge.className = `badge ${snapshot.status_badge_class || "muted"}`;
       progressLabel.textContent = snapshot.progress_label || "";
-      progressInfo.textContent = snapshot.progress_info || "Waiting for progress output...";
+      progressInfo.textContent = snapshot.progress_info || "";
+      progressInfo.hidden = !snapshot.progress_info;
 
       if (snapshot.progress_indeterminate) {
         progressFill.classList.add("indeterminate");
@@ -1395,6 +1687,7 @@
       if (cleanupForm) {
         cleanupForm.hidden = !snapshot.can_cleanup;
       }
+      renderLoadGtidContext(snapshot.load_target_gtid_context);
     };
 
     let timerId = null;

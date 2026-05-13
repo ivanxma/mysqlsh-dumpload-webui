@@ -9,6 +9,7 @@ from .config import SYSTEM_SCHEMAS
 
 AUTO_FIX_PRIMARY_KEY_COLUMN = "my_row_id"
 _IDENTIFIER_TOKEN_RE = re.compile(r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_$]*)")
+MYSQL_INTERNAL_SCHEMA_PREFIX = "mysql_"
 
 try:
     import paramiko
@@ -125,6 +126,7 @@ def fetch_accessible_schemas(profile, credentials):
                 SELECT schema_name AS name
                 FROM information_schema.schemata
                 WHERE schema_name NOT IN (%s, %s, %s, %s)
+                  AND schema_name NOT REGEXP '^mysql_'
                 ORDER BY schema_name
                 """,
                 tuple(sorted(SYSTEM_SCHEMAS)),
@@ -158,6 +160,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     SELECT schema_name AS schema_name
                     FROM information_schema.schemata
                     WHERE schema_name NOT IN (%s, %s, %s, %s)
+                      AND schema_name NOT REGEXP '^mysql_'
                     ORDER BY schema_name
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -177,6 +180,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     FROM information_schema.tables
                     WHERE TABLE_TYPE = 'BASE TABLE'
                       AND TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+                      AND TABLE_SCHEMA NOT REGEXP '^mysql_'
                     ORDER BY TABLE_SCHEMA, TABLE_NAME
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -220,6 +224,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     SELECT EVENT_SCHEMA AS schema_name, EVENT_NAME AS event_name
                     FROM information_schema.events
                     WHERE EVENT_SCHEMA NOT IN (%s, %s, %s, %s)
+                      AND EVENT_SCHEMA NOT REGEXP '^mysql_'
                     ORDER BY EVENT_SCHEMA, EVENT_NAME
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -241,6 +246,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     SELECT ROUTINE_SCHEMA AS schema_name, ROUTINE_NAME AS routine_name, ROUTINE_TYPE AS routine_type
                     FROM information_schema.routines
                     WHERE ROUTINE_SCHEMA NOT IN (%s, %s, %s, %s)
+                      AND ROUTINE_SCHEMA NOT REGEXP '^mysql_'
                     ORDER BY ROUTINE_SCHEMA, ROUTINE_TYPE, ROUTINE_NAME
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -265,6 +271,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     SELECT TRIGGER_SCHEMA AS schema_name, TRIGGER_NAME AS trigger_name
                     FROM information_schema.triggers
                     WHERE TRIGGER_SCHEMA NOT IN (%s, %s, %s, %s)
+                      AND TRIGGER_SCHEMA NOT REGEXP '^mysql_'
                     ORDER BY TRIGGER_SCHEMA, TRIGGER_NAME
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -286,6 +293,7 @@ def fetch_dump_filter_catalog(profile, credentials):
                     SELECT LIBRARY_SCHEMA AS schema_name, LIBRARY_NAME AS library_name
                     FROM information_schema.libraries
                     WHERE LIBRARY_SCHEMA NOT IN (%s, %s, %s, %s)
+                      AND LIBRARY_SCHEMA NOT REGEXP '^mysql_'
                     ORDER BY LIBRARY_SCHEMA, LIBRARY_NAME
                     """,
                     tuple(sorted(SYSTEM_SCHEMAS)),
@@ -306,6 +314,16 @@ def fetch_dump_filter_catalog(profile, credentials):
 
 def _string_value(value):
     return str(value or "").strip()
+
+
+def is_user_schema_name(value):
+    schema_name = _string_value(value)
+    normalized_schema_name = schema_name.lower()
+    return bool(
+        schema_name
+        and normalized_schema_name not in SYSTEM_SCHEMAS
+        and not normalized_schema_name.startswith(MYSQL_INTERNAL_SCHEMA_PREFIX)
+    )
 
 
 def _int_value(value):
@@ -398,7 +416,7 @@ def _normalize_schema_names(schema_names):
     seen = set()
     for raw_name in schema_names or []:
         schema_name = _string_value(raw_name)
-        if not schema_name or schema_name in SYSTEM_SCHEMAS or schema_name in seen:
+        if not is_user_schema_name(schema_name) or schema_name in seen:
             continue
         seen.add(schema_name)
         normalized_names.append(schema_name)
@@ -414,6 +432,62 @@ def _schema_filter_clause(column_name, schema_names):
     return f" AND {column_name} IN ({placeholders})", tuple(normalized_names)
 
 
+def _normalize_object_names(object_names):
+    normalized_names = []
+    seen = set()
+    for raw_name in object_names or []:
+        object_name = _string_value(raw_name)
+        if "." not in object_name:
+            continue
+        schema_name, table_name = (_string_value(part) for part in object_name.split(".", 1))
+        if not is_user_schema_name(schema_name) or not table_name:
+            continue
+        qualified_name = f"{schema_name}.{table_name}"
+        if qualified_name in seen:
+            continue
+        seen.add(qualified_name)
+        normalized_names.append((schema_name, table_name, qualified_name))
+    return normalized_names
+
+
+def _table_filter_clause(schema_column, table_column, *, include_tables=None, exclude_tables=None):
+    clauses = []
+    params = []
+
+    normalized_include_tables = _normalize_object_names(include_tables)
+    if normalized_include_tables:
+        placeholders = ", ".join(["%s"] * len(normalized_include_tables))
+        clauses.append(f"CONCAT({schema_column}, '.', {table_column}) IN ({placeholders})")
+        params.extend(qualified_name for _schema, _table, qualified_name in normalized_include_tables)
+
+    normalized_exclude_tables = _normalize_object_names(exclude_tables)
+    if normalized_exclude_tables:
+        placeholders = ", ".join(["%s"] * len(normalized_exclude_tables))
+        clauses.append(f"CONCAT({schema_column}, '.', {table_column}) NOT IN ({placeholders})")
+        params.extend(qualified_name for _schema, _table, qualified_name in normalized_exclude_tables)
+
+    if not clauses:
+        return "", ()
+    return " AND " + " AND ".join(clauses), tuple(params)
+
+
+def _merge_schema_filters(schema_names=None, include_schemas=None, exclude_schemas=None):
+    base_schemas = _normalize_schema_names(schema_names)
+    include_schema_names = _normalize_schema_names(include_schemas)
+    exclude_schema_names = set(_normalize_schema_names(exclude_schemas))
+
+    if base_schemas and include_schema_names:
+        schema_names = [name for name in base_schemas if name in set(include_schema_names)]
+    elif include_schema_names:
+        schema_names = include_schema_names
+    else:
+        schema_names = base_schemas
+
+    if exclude_schema_names:
+        schema_names = [name for name in schema_names if name not in exclude_schema_names]
+    return schema_names or None
+
+
 def _fetch_enabled_event_count_value(cursor, schema_names=None):
     schema_filter_sql, schema_filter_params = _schema_filter_clause("EVENT_SCHEMA", schema_names)
     cursor.execute(
@@ -422,6 +496,7 @@ def _fetch_enabled_event_count_value(cursor, schema_names=None):
         FROM information_schema.events
         WHERE STATUS = 'ENABLED'
           AND EVENT_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND EVENT_SCHEMA NOT REGEXP '^mysql_'
           {schema_filter_sql}
         """,
         tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params,
@@ -430,8 +505,14 @@ def _fetch_enabled_event_count_value(cursor, schema_names=None):
     return _int_value(row.get("enabled_event_count"))
 
 
-def _fetch_tables_without_primary_key_count(cursor, schema_names=None):
+def _fetch_tables_without_primary_key_count(cursor, schema_names=None, include_tables=None, exclude_tables=None):
     schema_filter_sql, schema_filter_params = _schema_filter_clause("t.TABLE_SCHEMA", schema_names)
+    table_filter_sql, table_filter_params = _table_filter_clause(
+        "t.TABLE_SCHEMA",
+        "t.TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
     cursor.execute(
         f"""
         SELECT COUNT(*) AS tables_without_primary_key_count
@@ -442,22 +523,32 @@ def _fetch_tables_without_primary_key_count(cursor, schema_names=None):
          AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
         WHERE t.TABLE_TYPE = 'BASE TABLE'
           AND t.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND t.TABLE_SCHEMA NOT REGEXP '^mysql_'
           {schema_filter_sql}
+          {table_filter_sql}
           AND tc.CONSTRAINT_NAME IS NULL
         """,
-        tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params,
+        tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params + table_filter_params,
     )
     row = cursor.fetchone() or {}
     return _int_value(row.get("tables_without_primary_key_count"))
 
 
-def _fetch_table_engine_counts(cursor, schema_names=None):
+def _fetch_table_engine_counts(cursor, schema_names=None, include_tables=None, exclude_tables=None):
     schema_filter_sql, schema_filter_params = _schema_filter_clause("t.TABLE_SCHEMA", schema_names)
+    table_filter_sql, table_filter_params = _table_filter_clause(
+        "t.TABLE_SCHEMA",
+        "t.TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
     cursor.execute(
         f"""
         SELECT
+          COUNT(*) AS table_count,
           SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) = 'INNODB' THEN 1 ELSE 0 END) AS innodb_table_count,
           SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) = 'LAKEHOUSE' THEN 1 ELSE 0 END) AS lakehouse_table_count,
+          SUM(CASE WHEN UPPER(COALESCE(t.ENGINE, '')) <> 'INNODB' THEN 1 ELSE 0 END) AS non_innodb_table_count,
           SUM(
             CASE
               WHEN UPPER(COALESCE(t.CREATE_OPTIONS, '')) LIKE '%%SECONDARY_ENGINE=RAPID%%' THEN 1
@@ -467,15 +558,321 @@ def _fetch_table_engine_counts(cursor, schema_names=None):
         FROM information_schema.tables t
         WHERE t.TABLE_TYPE = 'BASE TABLE'
           AND t.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND t.TABLE_SCHEMA NOT REGEXP '^mysql_'
+          {schema_filter_sql}
+          {table_filter_sql}
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params + table_filter_params,
+    )
+    row = cursor.fetchone() or {}
+    return {
+        "table_count": _int_value(row.get("table_count")),
+        "innodb_table_count": _int_value(row.get("innodb_table_count")),
+        "lakehouse_table_count": _int_value(row.get("lakehouse_table_count")),
+        "non_innodb_table_count": _int_value(row.get("non_innodb_table_count")),
+        "rapid_secondary_engine_table_count": _int_value(row.get("rapid_secondary_engine_table_count")),
+    }
+
+
+def _fetch_table_engine_summary(cursor, schema_names=None, include_tables=None, exclude_tables=None):
+    schema_filter_sql, schema_filter_params = _schema_filter_clause("TABLE_SCHEMA", schema_names)
+    table_filter_sql, table_filter_params = _table_filter_clause(
+        "TABLE_SCHEMA",
+        "TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
+    cursor.execute(
+        f"""
+        SELECT
+          COALESCE(ENGINE, 'UNKNOWN') AS engine_name,
+          COUNT(*) AS table_count
+        FROM information_schema.tables
+        WHERE TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND TABLE_SCHEMA NOT REGEXP '^mysql_'
+          {schema_filter_sql}
+          {table_filter_sql}
+        GROUP BY COALESCE(ENGINE, 'UNKNOWN')
+        ORDER BY table_count DESC, engine_name
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params + table_filter_params,
+    )
+    return [
+        {
+            "engine_name": _string_value(row.get("engine_name")) or "UNKNOWN",
+            "table_count": _int_value(row.get("table_count")),
+        }
+        for row in cursor.fetchall() or []
+    ]
+
+
+def fetch_lakehouse_table_names(
+    profile,
+    credentials,
+    *,
+    schema_names=None,
+    include_schemas=None,
+    exclude_schemas=None,
+    include_tables=None,
+    exclude_tables=None,
+):
+    effective_schema_names = _merge_schema_filters(
+        schema_names=schema_names,
+        include_schemas=include_schemas,
+        exclude_schemas=exclude_schemas,
+    )
+    with mysql_connection(profile, credentials, connect_timeout=5) as connection:
+        with connection.cursor() as cursor:
+            return _fetch_lakehouse_table_names(
+                cursor,
+                schema_names=effective_schema_names,
+                include_tables=include_tables,
+                exclude_tables=exclude_tables,
+            )
+
+
+def _fetch_lakehouse_table_names(cursor, schema_names=None, include_tables=None, exclude_tables=None):
+    schema_filter_sql, schema_filter_params = _schema_filter_clause("TABLE_SCHEMA", schema_names)
+    table_filter_sql, table_filter_params = _table_filter_clause(
+        "TABLE_SCHEMA",
+        "TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
+    cursor.execute(
+        f"""
+        SELECT TABLE_SCHEMA AS schema_name, TABLE_NAME AS table_name
+        FROM information_schema.tables
+        WHERE TABLE_TYPE = 'BASE TABLE'
+          AND UPPER(COALESCE(ENGINE, '')) = 'LAKEHOUSE'
+          AND TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND TABLE_SCHEMA NOT REGEXP '^mysql_'
+          {schema_filter_sql}
+          {table_filter_sql}
+        ORDER BY TABLE_SCHEMA, TABLE_NAME
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params + table_filter_params,
+    )
+    return [
+        f"{_string_value(row.get('schema_name'))}.{_string_value(row.get('table_name'))}"
+        for row in cursor.fetchall() or []
+        if _string_value(row.get("schema_name")) and _string_value(row.get("table_name"))
+    ]
+
+
+def _fetch_event_summary(cursor, schema_names=None):
+    schema_filter_sql, schema_filter_params = _schema_filter_clause("EVENT_SCHEMA", schema_names)
+    cursor.execute(
+        f"""
+        SELECT
+          COUNT(*) AS event_count,
+          SUM(CASE WHEN STATUS = 'ENABLED' THEN 1 ELSE 0 END) AS enabled_event_count
+        FROM information_schema.events
+        WHERE EVENT_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND EVENT_SCHEMA NOT REGEXP '^mysql_'
           {schema_filter_sql}
         """,
         tuple(sorted(SYSTEM_SCHEMAS)) + schema_filter_params,
     )
     row = cursor.fetchone() or {}
     return {
-        "innodb_table_count": _int_value(row.get("innodb_table_count")),
-        "lakehouse_table_count": _int_value(row.get("lakehouse_table_count")),
-        "rapid_secondary_engine_table_count": _int_value(row.get("rapid_secondary_engine_table_count")),
+        "event_count": _int_value(row.get("event_count")),
+        "enabled_event_count": _int_value(row.get("enabled_event_count")),
+    }
+
+
+def _fetch_auth_plugin_summary(cursor):
+    cursor.execute(
+        """
+        SELECT
+          COALESCE(plugin, '') AS plugin_name,
+          COUNT(*) AS user_count
+        FROM mysql.user
+        GROUP BY COALESCE(plugin, '')
+        ORDER BY user_count DESC, plugin_name
+        """
+    )
+    rows = [
+        {
+            "plugin_name": _string_value(row.get("plugin_name")) or "-",
+            "user_count": _int_value(row.get("user_count")),
+        }
+        for row in cursor.fetchall() or []
+    ]
+    native_count = sum(
+        row["user_count"]
+        for row in rows
+        if row["plugin_name"].lower() == "mysql_native_password"
+    )
+    return {
+        "auth_plugin_counts": rows,
+        "mysql_native_password_count": native_count,
+        "auth_plugin_error": "",
+    }
+
+
+def _fetch_charset_collation_summary(cursor, schema_names=None, include_tables=None, exclude_tables=None):
+    table_schema_filter_sql, table_schema_filter_params = _schema_filter_clause("t.TABLE_SCHEMA", schema_names)
+    table_filter_sql, table_filter_params = _table_filter_clause(
+        "t.TABLE_SCHEMA",
+        "t.TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
+    cursor.execute(
+        f"""
+        SELECT
+          SUBSTRING_INDEX(COALESCE(t.TABLE_COLLATION, ''), '_', 1) AS charset_name,
+          COALESCE(t.TABLE_COLLATION, '') AS collation_name,
+          COUNT(*) AS table_count
+        FROM information_schema.tables t
+        WHERE t.TABLE_TYPE = 'BASE TABLE'
+          AND t.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND t.TABLE_SCHEMA NOT REGEXP '^mysql_'
+          {table_schema_filter_sql}
+          {table_filter_sql}
+        GROUP BY SUBSTRING_INDEX(COALESCE(t.TABLE_COLLATION, ''), '_', 1), COALESCE(t.TABLE_COLLATION, '')
+        ORDER BY table_count DESC, charset_name, collation_name
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + table_schema_filter_params + table_filter_params,
+    )
+    table_charset_counts = [
+        {
+            "charset_name": _string_value(row.get("charset_name")) or "-",
+            "collation_name": _string_value(row.get("collation_name")) or "-",
+            "table_count": _int_value(row.get("table_count")),
+        }
+        for row in cursor.fetchall() or []
+    ]
+
+    cursor.execute(
+        f"""
+        SELECT
+          t.TABLE_SCHEMA AS schema_name,
+          t.TABLE_NAME AS table_name,
+          SUBSTRING_INDEX(COALESCE(t.TABLE_COLLATION, ''), '_', 1) AS charset_name,
+          COALESCE(t.TABLE_COLLATION, '') AS collation_name
+        FROM information_schema.tables t
+        WHERE t.TABLE_TYPE = 'BASE TABLE'
+          AND t.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND t.TABLE_SCHEMA NOT REGEXP '^mysql_'
+          AND (
+            SUBSTRING_INDEX(COALESCE(t.TABLE_COLLATION, ''), '_', 1) <> 'utf8mb4'
+            OR COALESCE(t.TABLE_COLLATION, '') <> 'utf8mb4_0900_ai_ci'
+          )
+          {table_schema_filter_sql}
+          {table_filter_sql}
+        ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME
+        LIMIT 500
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + table_schema_filter_params + table_filter_params,
+    )
+    non_standard_tables = [
+        {
+            "object_name": f"{_string_value(row.get('schema_name'))}.{_string_value(row.get('table_name'))}",
+            "charset_name": _string_value(row.get("charset_name")) or "-",
+            "collation_name": _string_value(row.get("collation_name")) or "-",
+        }
+        for row in cursor.fetchall() or []
+        if _string_value(row.get("schema_name")) and _string_value(row.get("table_name"))
+    ]
+
+    column_schema_filter_sql, column_schema_filter_params = _schema_filter_clause("c.TABLE_SCHEMA", schema_names)
+    column_table_filter_sql, column_table_filter_params = _table_filter_clause(
+        "c.TABLE_SCHEMA",
+        "c.TABLE_NAME",
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+    )
+    cursor.execute(
+        f"""
+        SELECT
+          COALESCE(c.CHARACTER_SET_NAME, '') AS charset_name,
+          COALESCE(c.COLLATION_NAME, '') AS collation_name,
+          COUNT(*) AS column_count
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+         AND t.TABLE_NAME = c.TABLE_NAME
+        WHERE t.TABLE_TYPE = 'BASE TABLE'
+          AND c.CHARACTER_SET_NAME IS NOT NULL
+          AND c.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND c.TABLE_SCHEMA NOT REGEXP '^mysql_'
+          {column_schema_filter_sql}
+          {column_table_filter_sql}
+        GROUP BY COALESCE(c.CHARACTER_SET_NAME, ''), COALESCE(c.COLLATION_NAME, '')
+        ORDER BY column_count DESC, charset_name, collation_name
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + column_schema_filter_params + column_table_filter_params,
+    )
+    column_charset_counts = [
+        {
+            "charset_name": _string_value(row.get("charset_name")) or "-",
+            "collation_name": _string_value(row.get("collation_name")) or "-",
+            "column_count": _int_value(row.get("column_count")),
+        }
+        for row in cursor.fetchall() or []
+    ]
+
+    cursor.execute(
+        f"""
+        SELECT
+          c.TABLE_SCHEMA AS schema_name,
+          c.TABLE_NAME AS table_name,
+          c.COLUMN_NAME AS column_name,
+          COALESCE(c.CHARACTER_SET_NAME, '') AS charset_name,
+          COALESCE(c.COLLATION_NAME, '') AS collation_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+         AND t.TABLE_NAME = c.TABLE_NAME
+        WHERE t.TABLE_TYPE = 'BASE TABLE'
+          AND c.CHARACTER_SET_NAME IS NOT NULL
+          AND c.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND c.TABLE_SCHEMA NOT REGEXP '^mysql_'
+          AND (
+            COALESCE(c.CHARACTER_SET_NAME, '') <> 'utf8mb4'
+            OR COALESCE(c.COLLATION_NAME, '') <> 'utf8mb4_0900_ai_ci'
+          )
+          {column_schema_filter_sql}
+          {column_table_filter_sql}
+        ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+        LIMIT 500
+        """,
+        tuple(sorted(SYSTEM_SCHEMAS)) + column_schema_filter_params + column_table_filter_params,
+    )
+    non_standard_columns = [
+        {
+            "object_name": (
+                f"{_string_value(row.get('schema_name'))}."
+                f"{_string_value(row.get('table_name'))}."
+                f"{_string_value(row.get('column_name'))}"
+            ),
+            "charset_name": _string_value(row.get("charset_name")) or "-",
+            "collation_name": _string_value(row.get("collation_name")) or "-",
+        }
+        for row in cursor.fetchall() or []
+        if _string_value(row.get("schema_name"))
+        and _string_value(row.get("table_name"))
+        and _string_value(row.get("column_name"))
+    ]
+
+    return {
+        "table_charset_counts": table_charset_counts,
+        "column_charset_counts": column_charset_counts,
+        "non_standard_table_charset_count": sum(
+            row["table_count"]
+            for row in table_charset_counts
+            if row["charset_name"] != "utf8mb4" or row["collation_name"] != "utf8mb4_0900_ai_ci"
+        ),
+        "non_standard_column_charset_count": sum(
+            row["column_count"]
+            for row in column_charset_counts
+            if row["charset_name"] != "utf8mb4" or row["collation_name"] != "utf8mb4_0900_ai_ci"
+        ),
+        "non_standard_table_charsets": non_standard_tables,
+        "non_standard_column_charsets": non_standard_columns,
     }
 
 
@@ -485,25 +882,73 @@ def fetch_enabled_event_count(profile, credentials):
             return _fetch_enabled_event_count_value(cursor)
 
 
-def fetch_dump_validation_summary(profile, credentials, *, schema_names=None):
+def fetch_dump_validation_summary(
+    profile,
+    credentials,
+    *,
+    schema_names=None,
+    include_schemas=None,
+    exclude_schemas=None,
+    include_tables=None,
+    exclude_tables=None,
+):
+    effective_schema_names = _merge_schema_filters(
+        schema_names=schema_names,
+        include_schemas=include_schemas,
+        exclude_schemas=exclude_schemas,
+    )
     with mysql_connection(profile, credentials, connect_timeout=5) as connection:
         with connection.cursor() as cursor:
             engine_counts = _fetch_table_engine_counts(
                 cursor,
-                schema_names=schema_names,
+                schema_names=effective_schema_names,
+                include_tables=include_tables,
+                exclude_tables=exclude_tables,
             )
+            event_summary = _fetch_event_summary(cursor, schema_names=effective_schema_names)
+            charset_summary = _fetch_charset_collation_summary(
+                cursor,
+                schema_names=effective_schema_names,
+                include_tables=include_tables,
+                exclude_tables=exclude_tables,
+            )
+            auth_summary = {
+                "auth_plugin_counts": [],
+                "mysql_native_password_count": 0,
+                "auth_plugin_error": "",
+            }
+            try:
+                auth_summary = _fetch_auth_plugin_summary(cursor)
+            except Exception as error:  # pragma: no cover - depends on mysql.user privileges
+                auth_summary["auth_plugin_error"] = str(error)
             return {
                 "tables_without_primary_key_count": _fetch_tables_without_primary_key_count(
                     cursor,
-                    schema_names=schema_names,
+                    schema_names=effective_schema_names,
+                    include_tables=include_tables,
+                    exclude_tables=exclude_tables,
                 ),
-                "enabled_event_count": _fetch_enabled_event_count_value(
-                    cursor,
-                    schema_names=schema_names,
-                ),
+                "table_count": engine_counts["table_count"],
                 "innodb_table_count": engine_counts["innodb_table_count"],
                 "lakehouse_table_count": engine_counts["lakehouse_table_count"],
+                "non_innodb_table_count": engine_counts["non_innodb_table_count"],
                 "rapid_secondary_engine_table_count": engine_counts["rapid_secondary_engine_table_count"],
+                "table_engine_counts": _fetch_table_engine_summary(
+                    cursor,
+                    schema_names=effective_schema_names,
+                    include_tables=include_tables,
+                    exclude_tables=exclude_tables,
+                ),
+                "lakehouse_tables": _fetch_lakehouse_table_names(
+                    cursor,
+                    schema_names=effective_schema_names,
+                    include_tables=include_tables,
+                    exclude_tables=exclude_tables,
+                ),
+                "event_count": event_summary["event_count"],
+                "enabled_event_count": event_summary["enabled_event_count"],
+                **auth_summary,
+                **charset_summary,
             }
 
 
@@ -555,6 +1000,7 @@ def _fetch_primary_key_rows(cursor, *, table_schema="", table_name=""):
          AND partitions.TABLE_NAME = t.TABLE_NAME
         WHERE t.TABLE_TYPE = 'BASE TABLE'
           AND t.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+          AND t.TABLE_SCHEMA NOT REGEXP '^mysql_'
     """
     params = [AUTO_FIX_PRIMARY_KEY_COLUMN, *sorted(SYSTEM_SCHEMAS)]
 
@@ -986,6 +1432,7 @@ def fetch_mysql_overview(profile, credentials):
                     SELECT schema_name AS name
                     FROM information_schema.schemata
                     WHERE schema_name NOT IN (%s, %s, %s, %s)
+                      AND schema_name NOT REGEXP '^mysql_'
                     ORDER BY schema_name
                     LIMIT 12
                     """,

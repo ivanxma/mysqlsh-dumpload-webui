@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import ssl
 import subprocess
 import sys
@@ -33,7 +34,9 @@ from modules.mysql_connection import (
     fetch_dump_filter_catalog,
     fetch_dump_validation_summary,
     fetch_enabled_event_count,
+    fetch_lakehouse_table_names,
     fetch_mysql_overview,
+    is_user_schema_name,
     set_event_status,
     test_mysql_connection,
 )
@@ -343,6 +346,7 @@ DUMP_OPTION_PROFILE_SUFFIXES = [
     "triggers",
     "libraries",
     "ocimds",
+    "exclude_lakehouse_tables",
     "compatibility",
     "include_tables",
     "exclude_tables",
@@ -425,6 +429,7 @@ DUMP_OPTION_PROFILE_BOOLEAN_SUFFIXES = {
     "triggers",
     "libraries",
     "ocimds",
+    "exclude_lakehouse_tables",
     "users",
 }
 
@@ -487,6 +492,10 @@ LOAD_OPTION_PROFILE_MULTILINE_SUFFIXES = {
 OPTION_PROFILE_JSON_TEXT_SUFFIXES = {
     "advanced_json",
 }
+
+GTID_SERVER_UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=:)"
+)
 
 
 def _copy_state_value(value):
@@ -609,6 +618,70 @@ def _apply_load_option_profile_values(form_state, profile_values):
         form_state[key] = _copy_state_value(profile_values[suffix])
 
 
+def _extract_gtid_server_uuids(*gtid_values):
+    uuids = []
+    seen = set()
+    for value in gtid_values:
+        for match in GTID_SERVER_UUID_PATTERN.findall(str(value or "")):
+            normalized = match.lower()
+            if normalized in seen:
+                continue
+            uuids.append(normalized)
+            seen.add(normalized)
+    return uuids
+
+
+def _build_load_target_gtid_context(profile, credentials):
+    overview = fetch_mysql_overview(profile, credentials)
+    server_uuid = str(overview.get("server_uuid", "") or "").strip().lower()
+    gtid_executed = str(overview.get("gtid_executed", "") or "").strip()
+    gtid_purged = str(overview.get("gtid_purged", "") or "").strip()
+    gtid_uuids = _extract_gtid_server_uuids(gtid_executed, gtid_purged)
+    other_uuids = [value for value in gtid_uuids if value != server_uuid] if server_uuid else list(gtid_uuids)
+
+    if overview.get("error"):
+        state = "warning"
+        badge_class = "warn"
+        badge_label = "Unavailable"
+        message = overview["error"]
+    elif not gtid_executed and not gtid_purged:
+        state = "empty"
+        badge_class = "good"
+        badge_label = "GTID Empty"
+        message = "GTID executed and GTID purged are empty on this DB System."
+    elif other_uuids:
+        state = "mixed"
+        badge_class = "danger"
+        badge_label = "GTID Warning"
+        message = "WARNING: Mixing GTIDs from different Servers."
+    elif server_uuid and gtid_uuids == [server_uuid]:
+        state = "local"
+        badge_class = "muted"
+        badge_label = "Local GTID"
+        message = "The Server has GTID generated only by this DB."
+    else:
+        state = "unknown"
+        badge_class = "warn"
+        badge_label = "Review GTID"
+        message = "Review GTID executed and GTID purged before loading data."
+
+    return {
+        "state": state,
+        "badge_class": badge_class,
+        "badge_label": badge_label,
+        "message": message,
+        "server_host": overview.get("server_host", ""),
+        "version": overview.get("version", ""),
+        "server_id": overview.get("server_id", ""),
+        "server_uuid": overview.get("server_uuid", ""),
+        "gtid_mode": overview.get("gtid_mode", ""),
+        "gtid_executed": gtid_executed,
+        "gtid_purged": gtid_purged,
+        "gtid_server_uuids": gtid_uuids,
+        "other_server_uuids": other_uuids,
+    }
+
+
 def _build_dump_form_state(prefix, *, include_users=False):
     compatibility_values = [value for value, _label in DUMP_COMPATIBILITY_OPTIONS]
     compression_values = [value for value, _label in COMPRESSION_OPTIONS]
@@ -646,6 +719,7 @@ def _build_dump_form_state(prefix, *, include_users=False):
         f"{prefix}_triggers": _request_checkbox(f"{prefix}_triggers", default=True),
         f"{prefix}_libraries": _request_checkbox(f"{prefix}_libraries", default=True),
         f"{prefix}_ocimds": _request_checkbox(f"{prefix}_ocimds"),
+        f"{prefix}_exclude_lakehouse_tables": _request_checkbox(f"{prefix}_exclude_lakehouse_tables"),
         f"{prefix}_compatibility": _request_multiselect(f"{prefix}_compatibility", compatibility_values),
         f"{prefix}_include_tables": _request_text(f"{prefix}_include_tables"),
         f"{prefix}_exclude_tables": _request_text(f"{prefix}_exclude_tables"),
@@ -748,7 +822,89 @@ def _set_option(options, key, value):
     options[key] = value
 
 
-def _build_dump_options(form_state, prefix, *, include_users=False):
+def _merge_exclude_tables(options, table_names):
+    merged = []
+    seen = set()
+    existing_tables = options.get("excludeTables") or []
+    if isinstance(existing_tables, str):
+        existing_tables = parse_string_list(existing_tables)
+    for table_name in list(existing_tables) + list(table_names or []):
+        normalized_table_name = str(table_name or "").strip()
+        if not normalized_table_name or normalized_table_name in seen:
+            continue
+        merged.append(normalized_table_name)
+        seen.add(normalized_table_name)
+    if merged:
+        options["excludeTables"] = merged
+
+
+def _option_list(options, key):
+    value = options.get(key)
+    if isinstance(value, list):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    if isinstance(value, str):
+        return parse_string_list(value)
+    return []
+
+
+def _dump_filter_scope_from_options(options, *, base_schema_names=None):
+    return {
+        "schema_names": list(base_schema_names or []),
+        "include_schemas": _option_list(options, "includeSchemas"),
+        "exclude_schemas": _option_list(options, "excludeSchemas"),
+        "include_tables": _option_list(options, "includeTables"),
+        "exclude_tables": _option_list(options, "excludeTables"),
+    }
+
+
+def _build_dump_options_for_scope(form_state, prefix, *, include_users=False):
+    return _build_dump_options(
+        form_state,
+        prefix,
+        include_users=include_users,
+        lakehouse_tables=[],
+    )
+
+
+def _fetch_lakehouse_tables_for_dump_scope(profile, credentials, scope):
+    return fetch_lakehouse_table_names(
+        profile,
+        credentials,
+        schema_names=scope["schema_names"] or None,
+        include_schemas=scope["include_schemas"],
+        exclude_schemas=scope["exclude_schemas"],
+        include_tables=scope["include_tables"],
+        exclude_tables=scope["exclude_tables"],
+    )
+
+
+def _build_dump_validation(profile, credentials, form_state, prefix, *, base_schema_names=None, include_users=False):
+    scope_options = _build_dump_options_for_scope(
+        form_state,
+        prefix,
+        include_users=include_users,
+    )
+    dump_scope = _dump_filter_scope_from_options(scope_options, base_schema_names=base_schema_names)
+    validation = fetch_dump_validation_summary(
+        profile,
+        credentials,
+        schema_names=dump_scope["schema_names"] or None,
+        include_schemas=dump_scope["include_schemas"],
+        exclude_schemas=dump_scope["exclude_schemas"],
+        include_tables=dump_scope["include_tables"],
+        exclude_tables=dump_scope["exclude_tables"],
+    )
+    include_table_set = set(dump_scope["include_tables"])
+    lakehouse_set = set(validation.get("lakehouse_tables") or [])
+    validation["lakehouse_include_table_conflicts"] = sorted(include_table_set & lakehouse_set)
+    validation["has_include_table_filter"] = bool(dump_scope["include_tables"])
+    validation["has_include_schema_filter"] = bool(dump_scope["include_schemas"])
+    validation["has_exclude_table_filter"] = bool(dump_scope["exclude_tables"])
+    validation["has_exclude_schema_filter"] = bool(dump_scope["exclude_schemas"])
+    return validation
+
+
+def _build_dump_options(form_state, prefix, *, include_users=False, lakehouse_tables=None):
     if form_state[f"{prefix}_ddl_only"] and form_state[f"{prefix}_data_only"]:
         raise ValueError("`ddlOnly` and `dataOnly` cannot both be enabled.")
 
@@ -814,6 +970,8 @@ def _build_dump_options(form_state, prefix, *, include_users=False):
 
     advanced_options = parse_json_options(form_state[f"{prefix}_advanced_json"])
     options.update(advanced_options)
+    if form_state.get(f"{prefix}_exclude_lakehouse_tables"):
+        _merge_exclude_tables(options, lakehouse_tables or [])
     return options
 
 
@@ -1770,6 +1928,26 @@ def shell_operations_page():
         dump_instance_enabled_event_count = None
 
     selected_schemas = request.form.getlist("schemas") if request.method == "POST" else request.args.getlist("schemas")
+    allowed_schema_names = set(user_schemas)
+    filtered_selected_schemas = []
+    ignored_selected_schemas = []
+    seen_selected_schemas = set()
+    for schema_name in selected_schemas:
+        normalized_schema_name = str(schema_name or "").strip()
+        if (
+            not normalized_schema_name
+            or normalized_schema_name in seen_selected_schemas
+            or not is_user_schema_name(normalized_schema_name)
+            or normalized_schema_name not in allowed_schema_names
+        ):
+            if normalized_schema_name and normalized_schema_name not in ignored_selected_schemas:
+                ignored_selected_schemas.append(normalized_schema_name)
+            continue
+        filtered_selected_schemas.append(normalized_schema_name)
+        seen_selected_schemas.add(normalized_schema_name)
+    selected_schemas = filtered_selected_schemas
+    if ignored_selected_schemas and request.method == "POST":
+        flash("Ignored hidden or inaccessible schemas: " + ", ".join(ignored_selected_schemas), "error")
     selected_dump_option_profile_name = _request_text("dump_option_profile_name")
     selected_load_option_profile_name = _request_text("load_option_profile_name")
     dump_option_profile_edit_name = _request_text(
@@ -1987,9 +2165,11 @@ def shell_operations_page():
 
             form_state["load_dump_progress_file"] = normalize_progress_file_value(form_state["load_dump_progress_file"])
         elif validation_action:
-            if validation_action != "dump-schemas":
+            if validation_action not in {"dump-instance", "dump-schemas"}:
                 flash("Unsupported validation action.", "error")
-            elif not selected_schemas:
+            elif selected_dump_option_profile is None:
+                flash("Select a dump option profile before running validation.", "error")
+            elif validation_action == "dump-schemas" and not selected_schemas:
                 flash("Select at least one schema before running validation.", "error")
         elif operation != "option-profiles":
             try:
@@ -1997,7 +2177,33 @@ def shell_operations_page():
                     par_entry = dump_par_lookup.get(form_state["dump_instance_par_id"])
                     if par_entry is None:
                         raise ValueError("Choose an active read/write PAR for dumpInstance.")
-                    dump_options = _build_dump_options(form_state, "dump_instance", include_users=True)
+                    lakehouse_tables = []
+                    if form_state["dump_instance_exclude_lakehouse_tables"]:
+                        scope_options = _build_dump_options_for_scope(
+                            form_state,
+                            "dump_instance",
+                            include_users=True,
+                        )
+                        dump_scope = _dump_filter_scope_from_options(
+                            scope_options,
+                            base_schema_names=user_schemas,
+                        )
+                        lakehouse_tables = _fetch_lakehouse_tables_for_dump_scope(
+                            profile,
+                            credentials,
+                            dump_scope,
+                        )
+                        if dump_scope["include_tables"] and lakehouse_tables:
+                            raise ValueError(
+                                "Option conflict: includeTables overlaps with Lakehouse tables that would be excluded. "
+                                "Run validation and review the Lakehouse includeTables overlap."
+                            )
+                    dump_options = _build_dump_options(
+                        form_state,
+                        "dump_instance",
+                        include_users=True,
+                        lakehouse_tables=lakehouse_tables,
+                    )
                     dump_summary_rows = [
                         ("Operation", "util.dumpInstance"),
                         ("Target PAR", par_entry["name"]),
@@ -2005,6 +2211,8 @@ def shell_operations_page():
                         ("Threads", str(dump_options["threads"])),
                         ("Option Count", str(len(dump_options))),
                     ]
+                    if form_state["dump_instance_exclude_lakehouse_tables"]:
+                        dump_summary_rows.append(("Excluded Lakehouse Tables", str(len(lakehouse_tables))))
                     if selected_dump_option_profile_name:
                         dump_summary_rows.append(("Option Profile", selected_dump_option_profile_name))
                     request_payload = build_dump_instance_request(par_entry["par_url"], dump_options)
@@ -2028,7 +2236,28 @@ def shell_operations_page():
                         raise ValueError("Choose an active read/write PAR for dumpSchemas.")
                     if not selected_schemas:
                         raise ValueError("Select at least one schema for dumpSchemas.")
-                    dump_options = _build_dump_options(form_state, "dump_schemas")
+                    lakehouse_tables = []
+                    if form_state["dump_schemas_exclude_lakehouse_tables"]:
+                        scope_options = _build_dump_options_for_scope(form_state, "dump_schemas")
+                        dump_scope = _dump_filter_scope_from_options(
+                            scope_options,
+                            base_schema_names=selected_schemas,
+                        )
+                        lakehouse_tables = _fetch_lakehouse_tables_for_dump_scope(
+                            profile,
+                            credentials,
+                            dump_scope,
+                        )
+                        if dump_scope["include_tables"] and lakehouse_tables:
+                            raise ValueError(
+                                "Option conflict: includeTables overlaps with Lakehouse tables that would be excluded. "
+                                "Run validation and review the Lakehouse includeTables overlap."
+                            )
+                    dump_options = _build_dump_options(
+                        form_state,
+                        "dump_schemas",
+                        lakehouse_tables=lakehouse_tables,
+                    )
                     dump_summary_rows = [
                         ("Operation", "util.dumpSchemas"),
                         ("Schemas", ", ".join(selected_schemas)),
@@ -2037,6 +2266,8 @@ def shell_operations_page():
                         ("Threads", str(dump_options["threads"])),
                         ("Option Count", str(len(dump_options))),
                     ]
+                    if form_state["dump_schemas_exclude_lakehouse_tables"]:
+                        dump_summary_rows.append(("Excluded Lakehouse Tables", str(len(lakehouse_tables))))
                     if selected_dump_option_profile_name:
                         dump_summary_rows.append(("Option Profile", selected_dump_option_profile_name))
                     request_payload = build_dump_schemas_request(selected_schemas, par_entry["par_url"], dump_options)
@@ -2126,26 +2357,41 @@ def shell_operations_page():
 
     dump_instance_validation = None
     dump_schemas_validation = None
-    dump_instance_validation_scope = "All accessible schemas"
-    dump_schemas_validation_scope = f"Selected schemas ({len(selected_schemas)})" if selected_schemas else ""
-    dump_schemas_validation_scope_names = selected_schemas or user_schemas or None
-    show_dump_schemas_validation = validation_action == "dump-schemas" and bool(selected_schemas)
+    dump_instance_validation_scope = (
+        f"Option profile {selected_dump_option_profile_name} over all accessible schemas"
+        if selected_dump_option_profile_name
+        else "All accessible schemas"
+    )
+    dump_schemas_validation_scope = (
+        f"Option profile {selected_dump_option_profile_name} over selected schemas ({len(selected_schemas)})"
+        if selected_dump_option_profile_name and selected_schemas
+        else (f"Selected schemas ({len(selected_schemas)})" if selected_schemas else "")
+    )
+    show_dump_instance_validation = validation_action == "dump-instance" and selected_dump_option_profile is not None
+    show_dump_schemas_validation = (
+        validation_action == "dump-schemas"
+        and selected_dump_option_profile is not None
+        and bool(selected_schemas)
+    )
 
     try:
-        dump_instance_validation = fetch_dump_validation_summary(
-            profile,
-            credentials,
-            schema_names=user_schemas or None,
-        )
+        if show_dump_instance_validation:
+            dump_instance_validation = _build_dump_validation(
+                profile,
+                credentials,
+                form_state,
+                "dump_instance",
+                base_schema_names=user_schemas,
+                include_users=True,
+            )
         if show_dump_schemas_validation:
-            if dump_schemas_validation_scope_names == (user_schemas or None):
-                dump_schemas_validation = dict(dump_instance_validation)
-            else:
-                dump_schemas_validation = fetch_dump_validation_summary(
-                    profile,
-                    credentials,
-                    schema_names=dump_schemas_validation_scope_names,
-                )
+            dump_schemas_validation = _build_dump_validation(
+                profile,
+                credentials,
+                form_state,
+                "dump_schemas",
+                base_schema_names=selected_schemas,
+            )
     except Exception:  # pragma: no cover - depends on runtime services
         dump_instance_validation = None
         dump_schemas_validation = None
@@ -2157,6 +2403,10 @@ def shell_operations_page():
             owner_profile_name=None,
             limit=100,
         )
+
+    load_target_gtid_context = None
+    if shell_page == "load-dump" or (operation_result and operation_result.get("operation") == "load-dump"):
+        load_target_gtid_context = _build_load_target_gtid_context(profile, credentials)
 
     return render_dashboard(
         "shell_operations.html",
@@ -2194,13 +2444,33 @@ def shell_operations_page():
         is_option_profiles_page=shell_page == "option-profiles",
         operation_history=operation_history,
         operation_result=operation_result,
+        load_target_gtid_context=load_target_gtid_context,
         dump_instance_enabled_event_count=dump_instance_enabled_event_count,
         dump_instance_validation=dump_instance_validation,
         dump_schemas_validation=dump_schemas_validation,
         dump_instance_validation_scope=dump_instance_validation_scope,
         dump_schemas_validation_scope=dump_schemas_validation_scope,
+        show_dump_instance_validation=show_dump_instance_validation,
         show_dump_schemas_validation=show_dump_schemas_validation,
         dump_option_filter_catalog=dump_option_filter_catalog,
+    )
+
+
+@app.route("/mysql-shell/validation/dump")
+@login_required
+def dump_validation_info_page():
+    return render_dashboard(
+        "dump_validation_info.html",
+        page_title="Dump Validation",
+    )
+
+
+@app.route("/mysql-shell/validation/load")
+@login_required
+def load_validation_info_page():
+    return render_dashboard(
+        "load_validation_info.html",
+        page_title="Load Validation",
     )
 
 
@@ -2220,6 +2490,11 @@ def mysqlsh_job_status_api(job_id):
     )
     if snapshot is None:
         return jsonify({"error": "MySQL Shell job not found."}), 404
+    if snapshot.get("operation") == "load-dump":
+        snapshot["load_target_gtid_context"] = _build_load_target_gtid_context(
+            get_session_profile(),
+            get_session_credentials(),
+        )
     return jsonify(snapshot)
 
 
