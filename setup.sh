@@ -1269,6 +1269,11 @@ wait_for_local_mysql_socket() {
   return 1
 }
 
+process_exists() {
+  local pid="$1"
+  kill -0 "$pid" 2>/dev/null || run_as_root kill -0 "$pid" 2>/dev/null
+}
+
 stop_local_mysql() {
   local pid
   if [[ ! -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]]; then
@@ -1279,24 +1284,24 @@ stop_local_mysql() {
     rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
     return 0
   fi
-  if ! kill -0 "$pid" 2>/dev/null; then
+  if ! process_exists "$pid"; then
     rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
     return 0
   fi
-  kill "$pid" 2>/dev/null || true
+  kill "$pid" 2>/dev/null || run_as_root kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 30); do
-    if ! kill -0 "$pid" 2>/dev/null; then
+    if ! process_exists "$pid"; then
       rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
       return 0
     fi
     sleep 1
   done
-  kill -9 "$pid" 2>/dev/null || true
+  kill -9 "$pid" 2>/dev/null || run_as_root kill -9 "$pid" 2>/dev/null || true
   rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
 }
 
 start_local_mysql() {
-  if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && kill -0 "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")" 2>/dev/null; then
+  if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && process_exists "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")"; then
     return 0
   fi
   mysqld --defaults-file="$LOCAL_MYSQL_CNF" --daemonize

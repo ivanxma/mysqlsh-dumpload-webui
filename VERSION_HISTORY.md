@@ -13,6 +13,7 @@ Status: Current
 - Restarted the app-managed local MySQL process during setup reruns so upgraded server binaries are actually used.
 - Enforced MySQL Server series checks for existing socket-only local-admin profiles, even when no bootstrap password is supplied.
 - Repaired ownership for generated runtime/profile/local-MySQL files when setup is rerun with root privileges for system deployment.
+- Allowed app-user setup reruns to stop stale root-owned app-managed MySQL processes through `sudo` during recovery.
 
 ## 1.0.4 - 2026-05-14
 
