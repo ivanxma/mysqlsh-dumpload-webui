@@ -1123,6 +1123,7 @@ setup_local_mysql_systemd_service() {
   local service_name="${APP_SLUG}-local-mysql"
   local unit_path="/etc/systemd/system/${service_name}.service"
   local mysqld_bin
+  local compat_lib_dir
   local bash_bin
 
   case "$os_family" in
@@ -1149,6 +1150,7 @@ setup_local_mysql_systemd_service() {
   service_user="$(resolve_service_user)"
   service_group="$(resolve_service_group "$service_user")"
   mysqld_bin="$(local_mysql_mysqld_bin)"
+  compat_lib_dir="$(mysql_server_compat_lib_dir)"
   bash_bin="$(resolve_bash_bin)" || return 1
 
   sudo tee "$unit_path" >/dev/null <<EOF
@@ -1162,6 +1164,7 @@ Type=simple
 User=$service_user
 Group=$service_group
 WorkingDirectory=$SCRIPT_DIR
+$(if [[ -d "$compat_lib_dir" ]]; then printf '%s\n' "Environment=LD_LIBRARY_PATH=$compat_lib_dir"; fi)
 ExecStart=$bash_bin -lc 'exec "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF"'
 Restart=on-failure
 RestartSec=5
@@ -1271,11 +1274,44 @@ mysql_server_version() {
   local basedir="${1:-}"
   local version_output
   local mysqld_bin="mysqld"
+  local compat_lib_dir
   if [[ -n "$basedir" ]]; then
     mysqld_bin="$basedir/bin/mysqld"
   fi
-  version_output="$("$mysqld_bin" --version 2>/dev/null || true)"
+  compat_lib_dir="$(mysql_server_compat_lib_dir)"
+  if [[ -d "$compat_lib_dir" ]]; then
+    version_output="$(LD_LIBRARY_PATH="$compat_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$mysqld_bin" --version 2>/dev/null || true)"
+  else
+    version_output="$("$mysqld_bin" --version 2>/dev/null || true)"
+  fi
   printf '%s\n' "$version_output" | sed -nE 's/.*Ver[[:space:]]+([0-9]+(\.[0-9]+){1,2}).*/\1/p' | head -n 1
+}
+
+mysql_server_compat_lib_dir() {
+  printf '%s\n' "$MYSQL_SERVER_RUNTIME_DIR/compat/lib"
+}
+
+prepare_embedded_mysql_runtime_compat() {
+  local os_family="$1"
+  local basedir="$2"
+  local compat_lib_dir
+  local libaio_source=""
+
+  case "$os_family" in
+    ubuntu) ;;
+    *) return 0 ;;
+  esac
+
+  if ldd "$basedir/bin/mysqld" 2>/dev/null | grep -q 'libaio\.so\.1 => not found'; then
+    libaio_source="$(find /usr/lib /lib \( -name 'libaio.so.1t64' -o -name 'libaio.so.1t64.*' \) 2>/dev/null | head -n 1 || true)"
+    if [[ -z "$libaio_source" ]]; then
+      echo "Embedded MySQL Server requires libaio.so.1. Install libaio1/libaio1t64 or provide a compatible library." >&2
+      return 1
+    fi
+    compat_lib_dir="$(mysql_server_compat_lib_dir)"
+    mkdir -p "$compat_lib_dir"
+    ln -sfn "$libaio_source" "$compat_lib_dir/libaio.so.1"
+  fi
 }
 
 mysql_server_matches_required_series() {
@@ -1298,6 +1334,7 @@ install_embedded_mysql_server_dependencies() {
     ubuntu)
       run_as_root apt-get update
       run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio1 libncurses6 xz-utils || \
+        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio1t64 libncurses6 xz-utils || \
         run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio-dev libncurses6 xz-utils || true
       ;;
   esac
@@ -1308,6 +1345,7 @@ install_mysql_server_binaries() {
   local basedir
   install_embedded_mysql_server_dependencies "$os_family" >&2
   basedir="$(install_embedded_mysql_server "$os_family" target)" || return 1
+  prepare_embedded_mysql_runtime_compat "$os_family" "$basedir" || return 1
   if mysql_server_matches_required_series "$basedir"; then
     printf '%s\n' "$basedir"
     return 0
@@ -1411,11 +1449,17 @@ stop_local_mysql() {
 
 start_local_mysql() {
   local mysqld_bin
+  local compat_lib_dir
   if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && process_exists "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")"; then
     return 0
   fi
   mysqld_bin="$(local_mysql_mysqld_bin)"
-  "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
+  compat_lib_dir="$(mysql_server_compat_lib_dir)"
+  if [[ -d "$compat_lib_dir" ]]; then
+    LD_LIBRARY_PATH="$compat_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
+  else
+    "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
+  fi
   wait_for_local_mysql_socket
 }
 
@@ -1452,7 +1496,11 @@ initialize_local_mysql_if_needed() {
   fi
 
   rm -rf "$LOCAL_MYSQL_DATADIR"
-  "$(local_mysql_mysqld_bin)" --defaults-file="$LOCAL_MYSQL_CNF" --initialize
+  if [[ -d "$(mysql_server_compat_lib_dir)" ]]; then
+    LD_LIBRARY_PATH="$(mysql_server_compat_lib_dir)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$(local_mysql_mysqld_bin)" --defaults-file="$LOCAL_MYSQL_CNF" --initialize
+  else
+    "$(local_mysql_mysqld_bin)" --defaults-file="$LOCAL_MYSQL_CNF" --initialize
+  fi
   temp_password="$(extract_temporary_mysql_password)"
   if [[ -z "$temp_password" ]]; then
     echo "Unable to read the temporary MySQL root password from $LOCAL_MYSQL_LOG_DIR/mysqld.err." >&2

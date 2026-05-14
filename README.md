@@ -55,6 +55,7 @@
 2. Run `./setup.sh`.
    This creates `.venv/`, installs Python dependencies, downloads an embedded MySQL Shell Innovation tarball into `runtime/mysqlsh/`, and saves the resolved runtime settings in `.runtime.env`.
    For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`. On Linux deployments, setup installs and starts the socket-only embedded server as `mysql-shell-web-local-mysql.service` so Auto-Update or web-service restarts do not leave `local-admin-profile` without its local socket.
+   On Ubuntu 24.04, setup handles the `libaio1t64` package transition by creating an app-local compatibility library path for embedded MySQL tarballs that still link to `libaio.so.1`.
 3. Start the app with `./start_http.sh` or `./start_https.sh`.
 4. Open the login page and sign in with a configured MySQL profile.
    Enable `Use SSH Tunnel` only when the MySQL server is reached through a jump host; the SSH fields stay disabled otherwise.

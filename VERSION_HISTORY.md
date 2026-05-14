@@ -1,10 +1,18 @@
 # Version History
 
-Current version: `1.0.7`
+Current version: `1.0.8`
+
+## 1.0.8 - 2026-05-14
+
+Status: Current
+
+- Added Ubuntu 24.04 `libaio1t64` compatibility for embedded MySQL Server tarballs that still link to `libaio.so.1`.
+- Created an app-local embedded MySQL compatibility library directory instead of modifying system library paths.
+- Passed the compatibility library path to MySQL version checks, initialization, setup-time starts, and the local embedded MySQL systemd unit.
 
 ## 1.0.7 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Added a dedicated `mysql-shell-web-local-mysql.service` for the embedded socket-only local-admin MySQL Server on Linux deployments.
 - Updated setup reruns and Auto-Update reruns to stop any ad-hoc embedded MySQL process and restart it under systemd before restarting the web service.
