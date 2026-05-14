@@ -1,10 +1,19 @@
 # Version History
 
-Current version: `1.0.4`
+Current version: `1.0.5`
+
+## 1.0.5 - 2026-05-14
+
+Status: Current
+
+- Reworked local-admin MySQL Server bootstrap to require MySQL Server `9.x` by default instead of accepting an existing `8.0` server binary.
+- Added MySQL Innovation repository setup for Oracle Linux and Ubuntu before installing `mysql-community-server` and `mysql-community-client`.
+- Persisted and passed through `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES` so setup reruns and Auto-Update keep the required server major series.
+- Added a clear setup failure when the installed `mysqld` version does not match the required series.
 
 ## 1.0.4 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Finalized OCI Compute init-script documentation for OL8, OL9, and Ubuntu with platform login users and explicit local admin bootstrap password placeholders.
 - Prevented setup reruns without a bootstrap password from re-forcing local-admin password rotation.

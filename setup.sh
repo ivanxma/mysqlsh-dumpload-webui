@@ -181,6 +181,7 @@ MYSQL_SHELL_WEB_PYTHON_MIN_VERSION="${MYSQL_SHELL_WEB_PYTHON_MIN_VERSION:-3.12}"
 MYSQL_SHELL_WEB_DEPENDENCY_AUDIT="${MYSQL_SHELL_WEB_DEPENDENCY_AUDIT:-warn}"
 MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT="${MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT:-0}"
 MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY="${MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY:-0}"
+MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES="${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES:-9}"
 LOCAL_MYSQL_PROFILE_NAME="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
 LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
 LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
@@ -218,6 +219,7 @@ Environment overrides:
   MYSQLSH_DOWNLOADS_DIR, SKIP_PRIVILEGED_SETUP,
   MYSQL_SHELL_WEB_PYTHON_BIN, MYSQL_SHELL_WEB_PYTHON_MIN_VERSION,
   MYSQL_SHELL_WEB_DEPENDENCY_AUDIT, MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT,
+  MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES,
   LOCAL_MYSQL_PROFILE_NAME, LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD,
   LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE
 
@@ -776,6 +778,7 @@ write_runtime_env() {
     echo "MYSQL_SHELL_WEB_PYTHON_MIN_VERSION=$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"
     echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT"
     echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT"
+    echo "MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=$MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES"
     if [[ "$deploy_mode" == "https" || "$deploy_mode" == "both" ]]; then
       echo "MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE=1"
     else
@@ -1072,34 +1075,134 @@ repair_local_permissions() {
   find "$SCRIPT_DIR/tls" -type f \( -name '*.key' -o -name '*.pem' -o -name '*.p12' -o -name '*.pfx' -o -name '*.jks' -o -name '*.keystore' \) -exec chmod 600 {} \; 2>/dev/null || true
 }
 
+mysql_server_version() {
+  local version_output
+  version_output="$(mysqld --version 2>/dev/null || true)"
+  printf '%s\n' "$version_output" | sed -nE 's/.*Ver[[:space:]]+([0-9]+(\.[0-9]+){1,2}).*/\1/p' | head -n 1
+}
+
+mysql_server_matches_required_series() {
+  local version
+  version="$(mysql_server_version)"
+  [[ -n "$version" && "$version" == "$MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES".* ]]
+}
+
+write_mysql_yum_innovation_repo() {
+  local os_major="$1"
+  run_as_root tee /etc/yum.repos.d/mysql-innovation-community.repo >/dev/null <<EOF
+[mysql-innovation-community]
+name=MySQL Innovation Community Server
+baseurl=https://repo.mysql.com/yum/mysql-innovation-community/el/${os_major}/\$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
+module_hotfixes=true
+
+[mysql-tools-innovation-community]
+name=MySQL Tools Innovation Community
+baseurl=https://repo.mysql.com/yum/mysql-tools-innovation-community/el/${os_major}/\$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
+module_hotfixes=true
+EOF
+}
+
+disable_mysql_yum_non_innovation_repos() {
+  if compgen -G "/etc/yum.repos.d/mysql-community*.repo" >/dev/null; then
+    run_as_root sed -i \
+      -e '/^\[mysql80-community\]/,/^\[/ s/^enabled=1/enabled=0/' \
+      -e '/^\[mysql84-community\]/,/^\[/ s/^enabled=1/enabled=0/' \
+      /etc/yum.repos.d/mysql-community*.repo || true
+  fi
+}
+
+install_mysql_yum_innovation_server() {
+  local os_major="$1"
+  write_mysql_yum_innovation_repo "$os_major"
+  disable_mysql_yum_non_innovation_repos
+  run_as_root dnf clean expire-cache || true
+  run_as_root dnf install -y mysql-community-server mysql-community-client
+  run_as_root dnf upgrade -y mysql-community-server mysql-community-client mysql-community-client-plugins mysql-community-common mysql-community-libs || true
+}
+
+ubuntu_codename() {
+  if command -v lsb_release >/dev/null 2>&1; then
+    lsb_release -cs
+    return 0
+  fi
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    printf '%s\n' "${VERSION_CODENAME:-}"
+  fi
+}
+
+write_mysql_apt_innovation_repo() {
+  local codename="$1"
+  if [[ -z "$codename" ]]; then
+    echo "Unable to determine Ubuntu codename for MySQL Innovation APT repository." >&2
+    return 1
+  fi
+  run_as_root rm -f /etc/apt/sources.list.d/mysql.list /etc/apt/sources.list.d/mysql-community.list
+  run_as_root install -d -m 0755 /usr/share/keyrings
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | run_as_root gpg --batch --yes --dearmor -o /usr/share/keyrings/mysql.gpg
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | run_as_root gpg --batch --yes --dearmor -o /usr/share/keyrings/mysql.gpg
+  else
+    echo "curl or wget is required to install the MySQL APT repository key." >&2
+    return 1
+  fi
+  run_as_root chmod 0644 /usr/share/keyrings/mysql.gpg
+  run_as_root tee /etc/apt/sources.list.d/mysql-innovation.list >/dev/null <<EOF
+deb [signed-by=/usr/share/keyrings/mysql.gpg] https://repo.mysql.com/apt/ubuntu/ ${codename} mysql-innovation mysql-tools
+EOF
+}
+
+install_mysql_apt_innovation_server() {
+  run_as_root apt-get update
+  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gnupg curl
+  write_mysql_apt_innovation_repo "$(ubuntu_codename)"
+  run_as_root apt-get update
+  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client
+}
+
 install_mysql_server_binaries() {
   local os_family="$1"
-  if command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1; then
+  if command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1 && mysql_server_matches_required_series; then
     return 0
   fi
   if privileged_setup_skipped; then
-    echo "MySQL Server binaries are required for local-admin bootstrap. Install mysqld/mysql manually or rerun without SKIP_PRIVILEGED_SETUP." >&2
+    echo "MySQL Server ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x binaries are required for local-admin bootstrap. Install mysqld/mysql manually or rerun without SKIP_PRIVILEGED_SETUP." >&2
     return 1
   fi
   case "$os_family" in
     ol8)
       run_as_root dnf -y module disable mysql || true
-      run_as_root dnf install -y mysql-community-server mysql-community-client || run_as_root dnf install -y mysql-server mysql
+      install_mysql_yum_innovation_server 8
       ;;
     ol9)
-      run_as_root dnf install -y mysql-community-server mysql-community-client || run_as_root dnf install -y mysql-server mysql
+      install_mysql_yum_innovation_server 9
       ;;
     ubuntu)
-      run_as_root apt-get update
-      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client || run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client
+      install_mysql_apt_innovation_server
       ;;
     macos)
       if command -v brew >/dev/null 2>&1; then
         brew install mysql || true
+        brew upgrade mysql || true
       fi
       ;;
   esac
-  command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1
+  if ! command -v mysqld >/dev/null 2>&1 || ! command -v mysql >/dev/null 2>&1; then
+    echo "MySQL Server binaries were not found after installation." >&2
+    return 1
+  fi
+  if ! mysql_server_matches_required_series; then
+    echo "MySQL Server $(mysql_server_version) is installed, but ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x is required. Enable the MySQL Innovation repository and rerun setup.sh." >&2
+    return 1
+  fi
 }
 
 write_local_mysql_config() {
