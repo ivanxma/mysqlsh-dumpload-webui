@@ -578,21 +578,33 @@ prompt_for_ports_if_needed() {
 open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
+  local firewall_timeout=20
   if [[ "$(uname -s)" == "Darwin" ]]; then
     echo "macOS does not expose Linux-style port opening here. Allow the Python process through the macOS firewall if prompted, or open ${port_value}/tcp for ${protocol_label} manually." >&2
     return 0
   fi
 
   if command -v firewall-cmd >/dev/null 2>&1; then
-    sudo firewall-cmd --permanent --add-port="${port_value}/tcp"
-    sudo firewall-cmd --reload
-    echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+    if command -v timeout >/dev/null 2>&1; then
+      if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
+        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      else
+        echo "firewall-cmd did not complete within ${firewall_timeout}s or returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+      fi
+    elif sudo firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo firewall-cmd --reload; then
+      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+    else
+      echo "firewall-cmd returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+    fi
     return 0
   fi
 
   if command -v ufw >/dev/null 2>&1; then
-    sudo ufw allow "${port_value}/tcp"
-    echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with ufw."
+    if sudo ufw allow "${port_value}/tcp"; then
+      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with ufw."
+    else
+      echo "ufw returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+    fi
     return 0
   fi
 

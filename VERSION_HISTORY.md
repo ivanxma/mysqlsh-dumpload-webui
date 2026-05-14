@@ -1,10 +1,17 @@
 # Version History
 
-Current version: `1.0.8`
+Current version: `1.0.9`
+
+## 1.0.9 - 2026-05-14
+
+Status: Current
+
+- Made Oracle Linux firewall setup bounded and warn-only so a stuck `firewall-cmd` DBus call cannot leave OCI init scripts permanently in the installing state.
+- Kept setup completion independent from firewall automation; operators still receive a manual port-opening message when firewall tooling fails or times out.
 
 ## 1.0.8 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Added Ubuntu 24.04 `libaio1t64` compatibility for embedded MySQL Server tarballs that still link to `libaio.so.1`.
 - Created an app-local embedded MySQL compatibility library directory instead of modifying system library paths.
