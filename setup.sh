@@ -1158,12 +1158,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=forking
+Type=simple
 User=$service_user
 Group=$service_group
 WorkingDirectory=$SCRIPT_DIR
-PIDFile=$LOCAL_MYSQL_RUN_DIR/mysqld.pid
-ExecStart=$bash_bin -lc 'exec "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize'
+ExecStart=$bash_bin -lc 'exec "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF"'
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=120
