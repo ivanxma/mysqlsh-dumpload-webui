@@ -608,6 +608,19 @@ open_firewall_port() {
     return 0
   fi
 
+  if command -v iptables >/dev/null 2>&1; then
+    if sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
+      sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT; then
+      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with iptables."
+      if command -v iptables-save >/dev/null 2>&1 && [[ -d /etc/iptables ]]; then
+        sudo sh -c 'iptables-save > /etc/iptables/rules.v4' || true
+      fi
+    else
+      echo "iptables returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+    fi
+    return 0
+  fi
+
   echo "Firewall tool not found. Open ${port_value}/tcp for ${protocol_label} manually on this host." >&2
 }
 

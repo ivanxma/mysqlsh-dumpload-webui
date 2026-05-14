@@ -1,10 +1,17 @@
 # Version History
 
-Current version: `1.0.9`
+Current version: `1.0.10`
+
+## 1.0.10 - 2026-05-14
+
+Status: Current
+
+- Added an `iptables` firewall fallback for Ubuntu OCI images that do not use `ufw` but reject inbound traffic after SSH by default.
+- Persisted the generated `iptables` allowance to `/etc/iptables/rules.v4` when `iptables-save` and `/etc/iptables` are available.
 
 ## 1.0.9 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Made Oracle Linux firewall setup bounded and warn-only so a stuck `firewall-cmd` DBus call cannot leave OCI init scripts permanently in the installing state.
 - Kept setup completion independent from firewall automation; operators still receive a manual port-opening message when firewall tooling fails or times out.
