@@ -142,9 +142,11 @@ install_embedded_mysql_prerequisites() {
   case "$OS_FAMILY" in
     ol8|ol9)
       if command -v dnf >/dev/null 2>&1; then
-        dnf install -y xz libaio ncurses-compat-libs || true
+        dnf install -y xz libaio || true
+        dnf install -y ncurses-compat-libs || true
       elif command -v yum >/dev/null 2>&1; then
-        yum install -y xz libaio ncurses-compat-libs || true
+        yum install -y xz libaio || true
+        yum install -y ncurses-compat-libs || true
       fi
       ;;
     ubuntu)

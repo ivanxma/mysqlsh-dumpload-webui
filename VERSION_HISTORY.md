@@ -12,6 +12,7 @@ Status: Current
 - Updated OCI Compute init-script handling to install only embedded-server prerequisites and pass embedded MySQL settings through to `setup.sh`.
 - Updated Auto-Update pass-through so embedded MySQL Server version, URL, bridge, runtime, and download settings survive setup reruns.
 - Kept embedded MySQL prerequisite installer output on stderr so only the selected basedir path is captured during setup.
+- Split required and optional Oracle Linux embedded-MySQL prerequisite packages so missing optional ncurses compatibility packages do not block `xz` or `libaio` installation.
 
 ## 1.0.5 - 2026-05-14
 

@@ -1230,7 +1230,8 @@ install_embedded_mysql_server_dependencies() {
   fi
   case "$os_family" in
     ol8|ol9)
-      run_as_root dnf install -y libaio ncurses-compat-libs xz || true
+      run_as_root dnf install -y libaio xz || true
+      run_as_root dnf install -y ncurses-compat-libs || true
       ;;
     ubuntu)
       run_as_root apt-get update
