@@ -20,6 +20,7 @@ HTTP_SERVICE = f"{APP_SLUG}-http.service"
 HTTPS_SERVICE = f"{APP_SLUG}-https.service"
 SUPPORTED_OS_FAMILIES = {"ol8", "ol9", "ubuntu", "macos"}
 LOCAL_STATE_PREFIXES = (
+    ".flask_secret_key",
     ".runtime.env",
     ".data/",
     ".embedded/",
@@ -82,6 +83,7 @@ class UpdateWorker:
 
     def repair_permissions(self):
         for path in (
+            self.repo_dir / ".flask_secret_key",
             self.repo_dir / ".runtime.env",
             self.repo_dir / "profiles.json",
             self.repo_dir / "object_storage.json",
