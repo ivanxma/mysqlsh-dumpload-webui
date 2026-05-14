@@ -14,6 +14,7 @@ Status: Current
 - Enforced MySQL Server series checks for existing socket-only local-admin profiles, even when no bootstrap password is supplied.
 - Repaired ownership for generated runtime/profile/local-MySQL files when setup is rerun with root privileges for system deployment.
 - Allowed app-user setup reruns to stop stale root-owned app-managed MySQL processes through `sudo` during recovery.
+- Added an Oracle Linux MySQL 8.4 LTS bridge upgrade path so existing `8.0` app-managed datadirs can be upgraded before final MySQL `9.x` startup.
 
 ## 1.0.4 - 2026-05-14
 

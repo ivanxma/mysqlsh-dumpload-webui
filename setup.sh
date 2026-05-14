@@ -1128,6 +1128,19 @@ module_hotfixes=true
 EOF
 }
 
+write_mysql_yum_lts_repo() {
+  local os_major="$1"
+  run_as_root tee /etc/yum.repos.d/mysql84-community.repo >/dev/null <<EOF
+[mysql84-community]
+name=MySQL 8.4 LTS Community Server
+baseurl=https://repo.mysql.com/yum/mysql-8.4-community/el/${os_major}/\$basearch/
+enabled=0
+gpgcheck=1
+gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
+module_hotfixes=true
+EOF
+}
+
 disable_mysql_yum_non_innovation_repos() {
   if compgen -G "/etc/yum.repos.d/mysql-community*.repo" >/dev/null; then
     run_as_root sed -i \
@@ -1140,10 +1153,24 @@ disable_mysql_yum_non_innovation_repos() {
 install_mysql_yum_innovation_server() {
   local os_major="$1"
   write_mysql_yum_innovation_repo "$os_major"
+  write_mysql_yum_lts_repo "$os_major"
   disable_mysql_yum_non_innovation_repos
   run_as_root dnf clean expire-cache || true
   run_as_root dnf install -y mysql-community-server mysql-community-client
   run_as_root dnf upgrade -y mysql-community-server mysql-community-client mysql-community-client-plugins mysql-community-common mysql-community-libs || true
+}
+
+install_mysql_yum_lts_server() {
+  local os_major="$1"
+  write_mysql_yum_lts_repo "$os_major"
+  run_as_root dnf clean expire-cache || true
+  run_as_root dnf --disablerepo='mysql-innovation-community' --enablerepo='mysql84-community' downgrade -y \
+    mysql-community-server \
+    mysql-community-client \
+    mysql-community-client-plugins \
+    mysql-community-common \
+    mysql-community-libs \
+    mysql-community-icu-data-files
 }
 
 ubuntu_codename() {
@@ -1223,6 +1250,30 @@ install_mysql_server_binaries() {
     echo "MySQL Server $(mysql_server_version) is installed, but ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x is required. Enable the MySQL Innovation repository and rerun setup.sh." >&2
     return 1
   fi
+}
+
+bridge_local_mysql_through_lts_if_supported() {
+  local os_family="$1"
+  local basedir
+  case "$os_family" in
+    ol8)
+      echo "Attempting MySQL 8.4 LTS bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
+      install_mysql_yum_lts_server 8
+      ;;
+    ol9)
+      echo "Attempting MySQL 8.4 LTS bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
+      install_mysql_yum_lts_server 9
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  basedir="$(local_mysql_basedir)" || return 1
+  write_local_mysql_config "$basedir"
+  stop_local_mysql
+  start_local_mysql
+  stop_local_mysql
+  install_mysql_server_binaries "$os_family"
 }
 
 write_local_mysql_config() {
@@ -1330,7 +1381,13 @@ initialize_local_mysql_if_needed() {
 
   if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
     stop_local_mysql
-    start_local_mysql
+    if ! start_local_mysql; then
+      bridge_local_mysql_through_lts_if_supported "$os_family"
+      basedir="$(local_mysql_basedir)" || return 1
+      write_local_mysql_config "$basedir"
+      stop_local_mysql
+      start_local_mysql
+    fi
     return 0
   fi
 

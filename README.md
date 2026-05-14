@@ -42,6 +42,7 @@
 - Internet access during bootstrap so the Git repo and embedded MySQL Shell tarball can be downloaded
 - `sudo` or root access when the host needs package installation, firewall changes, or systemd service setup
 - MySQL Server `9.x` for the app-managed socket-only `local-admin-profile` bootstrap. `setup.sh` configures the MySQL Innovation repository and installs or upgrades `mysql-community-server` / `mysql-community-client`; it rejects an existing `8.0` `mysqld` for this local admin store.
+  On Oracle Linux, existing app-managed datadirs initialized by MySQL `8.0` are bridged through MySQL `8.4` LTS before final MySQL `9.x` startup because direct `8.0` to `9.x` server upgrades are not valid.
 - Network access from the app host to the target MySQL server
 - SSH private key access on the app host when using SSH-enabled profiles
 - OCI credentials available when using Object Storage features
