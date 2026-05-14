@@ -175,6 +175,14 @@ MYSQLSH_URL_LINUX_X86="${MYSQLSH_URL_LINUX_X86:-https://dev.mysql.com/get/Downlo
 MYSQLSH_URL_LINUX_ARM="${MYSQLSH_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-linux-glibc2.28-arm-64bit.tar.gz}"
 MYSQLSH_RUNTIME_DIR="${MYSQLSH_RUNTIME_DIR:-$SCRIPT_DIR/runtime/mysqlsh}"
 MYSQLSH_DOWNLOADS_DIR="${MYSQLSH_DOWNLOADS_DIR:-$SCRIPT_DIR/runtime/downloads}"
+MYSQL_SERVER_EMBEDDED_VERSION="${MYSQL_SERVER_EMBEDDED_VERSION:-9.7.0}"
+MYSQL_SERVER_BRIDGE_VERSION="${MYSQL_SERVER_BRIDGE_VERSION:-8.4.8}"
+MYSQL_SERVER_URL_LINUX_X86="${MYSQL_SERVER_URL_LINUX_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-linux-glibc2.28-x86_64.tar.xz}"
+MYSQL_SERVER_URL_LINUX_ARM="${MYSQL_SERVER_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-linux-glibc2.28-aarch64.tar.xz}"
+MYSQL_SERVER_BRIDGE_URL_LINUX_X86="${MYSQL_SERVER_BRIDGE_URL_LINUX_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-linux-glibc2.28-x86_64.tar.xz}"
+MYSQL_SERVER_BRIDGE_URL_LINUX_ARM="${MYSQL_SERVER_BRIDGE_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-linux-glibc2.28-aarch64.tar.xz}"
+MYSQL_SERVER_RUNTIME_DIR="${MYSQL_SERVER_RUNTIME_DIR:-$SCRIPT_DIR/.embedded/mysql-server}"
+MYSQL_SERVER_DOWNLOADS_DIR="${MYSQL_SERVER_DOWNLOADS_DIR:-$SCRIPT_DIR/runtime/downloads}"
 FLASK_SECRET_KEY_FILE="${FLASK_SECRET_KEY_FILE:-$SCRIPT_DIR/.flask_secret_key}"
 MYSQL_SHELL_WEB_PYTHON_BIN="${MYSQL_SHELL_WEB_PYTHON_BIN:-}"
 MYSQL_SHELL_WEB_PYTHON_MIN_VERSION="${MYSQL_SHELL_WEB_PYTHON_MIN_VERSION:-3.12}"
@@ -216,7 +224,12 @@ Environment overrides:
   OS_FAMILY, DEPLOY_MODE, HOST, HTTP_PORT, HTTPS_PORT, SSL_CERT_FILE,
   SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
   MYSQLSH_BINARY, MYSQLSH_EMBEDDED_VERSION, MYSQLSH_RUNTIME_DIR,
-  MYSQLSH_DOWNLOADS_DIR, SKIP_PRIVILEGED_SETUP,
+  MYSQLSH_DOWNLOADS_DIR, MYSQL_SERVER_EMBEDDED_VERSION,
+  MYSQL_SERVER_BRIDGE_VERSION, MYSQL_SERVER_URL_LINUX_X86,
+  MYSQL_SERVER_URL_LINUX_ARM, MYSQL_SERVER_BRIDGE_URL_LINUX_X86,
+  MYSQL_SERVER_BRIDGE_URL_LINUX_ARM, MYSQL_SERVER_RUNTIME_DIR,
+  MYSQL_SERVER_DOWNLOADS_DIR,
+  SKIP_PRIVILEGED_SETUP,
   MYSQL_SHELL_WEB_PYTHON_BIN, MYSQL_SHELL_WEB_PYTHON_MIN_VERSION,
   MYSQL_SHELL_WEB_DEPENDENCY_AUDIT, MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT,
   MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES,
@@ -614,6 +627,24 @@ resolve_mysqlsh_download_url() {
   esac
 }
 
+resolve_mysql_server_download_url() {
+  local os_family="$1"
+  local version_kind="${2:-target}"
+  local machine_arch
+
+  machine_arch="$(resolve_machine_arch)" || return 1
+  case "${os_family}:${machine_arch}:${version_kind}" in
+    ubuntu:x86_64:target|ol8:x86_64:target|ol9:x86_64:target) echo "$MYSQL_SERVER_URL_LINUX_X86" ;;
+    ubuntu:arm64:target|ol8:arm64:target|ol9:arm64:target) echo "$MYSQL_SERVER_URL_LINUX_ARM" ;;
+    ubuntu:x86_64:bridge|ol8:x86_64:bridge|ol9:x86_64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_LINUX_X86" ;;
+    ubuntu:arm64:bridge|ol8:arm64:bridge|ol9:arm64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_LINUX_ARM" ;;
+    *)
+      echo "No embedded MySQL Server tarball is configured for OS family '$os_family' on architecture '$machine_arch'." >&2
+      return 1
+      ;;
+  esac
+}
+
 require_download_tool() {
   if command -v curl >/dev/null 2>&1; then
     echo "curl"
@@ -652,6 +683,7 @@ download_file() {
 strip_tarball_suffix() {
   local filename="$1"
 
+  filename="${filename%.tar.xz}"
   filename="${filename%.tar.gz}"
   filename="${filename%.tgz}"
   printf '%s\n' "$filename"
@@ -661,13 +693,25 @@ extract_tarball_root() {
   local archive_path="$1"
   local archive_root
 
-  archive_root="$(tar -tzf "$archive_path" | sed -n '1s#/.*##p')"
+  case "$archive_path" in
+    *.tar.xz) archive_root="$(tar -tJf "$archive_path" | sed -n '1s#/.*##p')" ;;
+    *) archive_root="$(tar -tzf "$archive_path" | sed -n '1s#/.*##p')" ;;
+  esac
   if [[ -z "$archive_root" ]]; then
     echo "Unable to determine the extracted root directory for $archive_path." >&2
     return 1
   fi
 
   printf '%s\n' "$archive_root"
+}
+
+extract_tarball() {
+  local archive_path="$1"
+  local target_dir="$2"
+  case "$archive_path" in
+    *.tar.xz) tar -xJf "$archive_path" -C "$target_dir" ;;
+    *) tar -xzf "$archive_path" -C "$target_dir" ;;
+  esac
 }
 
 install_embedded_mysqlsh() {
@@ -698,7 +742,7 @@ install_embedded_mysqlsh() {
 
     archive_root="$(extract_tarball_root "$archive_path")" || return 1
     staging_dir="$(mktemp -d "$MYSQLSH_RUNTIME_DIR/.extract.XXXXXX")"
-    tar -xzf "$archive_path" -C "$staging_dir"
+    extract_tarball "$archive_path" "$staging_dir"
 
     if [[ ! -d "$staging_dir/$archive_root" ]]; then
       echo "Expected extracted directory '$archive_root' was not found in $archive_path." >&2
@@ -779,6 +823,14 @@ write_runtime_env() {
     echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT"
     echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT"
     echo "MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=$MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES"
+    echo "MYSQL_SERVER_EMBEDDED_VERSION=$MYSQL_SERVER_EMBEDDED_VERSION"
+    echo "MYSQL_SERVER_BRIDGE_VERSION=$MYSQL_SERVER_BRIDGE_VERSION"
+    echo "MYSQL_SERVER_RUNTIME_DIR=$MYSQL_SERVER_RUNTIME_DIR"
+    echo "MYSQL_SERVER_DOWNLOADS_DIR=$MYSQL_SERVER_DOWNLOADS_DIR"
+    echo "MYSQL_SERVER_URL_LINUX_X86=$MYSQL_SERVER_URL_LINUX_X86"
+    echo "MYSQL_SERVER_URL_LINUX_ARM=$MYSQL_SERVER_URL_LINUX_ARM"
+    echo "MYSQL_SERVER_BRIDGE_URL_LINUX_X86=$MYSQL_SERVER_BRIDGE_URL_LINUX_X86"
+    echo "MYSQL_SERVER_BRIDGE_URL_LINUX_ARM=$MYSQL_SERVER_BRIDGE_URL_LINUX_ARM"
     if [[ "$deploy_mode" == "https" || "$deploy_mode" == "both" ]]; then
       echo "MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE=1"
     else
@@ -1095,180 +1147,117 @@ repair_local_permissions() {
   find "$SCRIPT_DIR/tls" -type f \( -name '*.key' -o -name '*.pem' -o -name '*.p12' -o -name '*.pfx' -o -name '*.jks' -o -name '*.keystore' \) -exec chmod 600 {} \; 2>/dev/null || true
 }
 
+install_embedded_mysql_server() {
+  local os_family="$1"
+  local version_kind="${2:-target}"
+  local download_url
+  local archive_name
+  local archive_path
+  local target_dir
+  local current_link
+  local staging_dir=""
+  local archive_root
+  local display_version="$MYSQL_SERVER_EMBEDDED_VERSION"
+
+  if [[ "$version_kind" == "bridge" ]]; then
+    display_version="$MYSQL_SERVER_BRIDGE_VERSION"
+  fi
+
+  download_url="$(resolve_mysql_server_download_url "$os_family" "$version_kind")" || return 1
+  archive_name="${download_url##*/}"
+  archive_path="$MYSQL_SERVER_DOWNLOADS_DIR/$archive_name"
+  target_dir="$MYSQL_SERVER_RUNTIME_DIR/$(strip_tarball_suffix "$archive_name")"
+  current_link="$MYSQL_SERVER_RUNTIME_DIR/current"
+
+  mkdir -p "$MYSQL_SERVER_RUNTIME_DIR" "$MYSQL_SERVER_DOWNLOADS_DIR"
+
+  if [[ ! -x "$target_dir/bin/mysqld" || ! -x "$target_dir/bin/mysql" ]]; then
+    if [[ ! -f "$archive_path" ]]; then
+      echo "Downloading embedded MySQL Server ${display_version}: $archive_name" >&2
+      download_file "$download_url" "$archive_path"
+    else
+      echo "Reusing downloaded MySQL Server archive: $archive_path" >&2
+    fi
+
+    archive_root="$(extract_tarball_root "$archive_path")" || return 1
+    staging_dir="$(mktemp -d "$MYSQL_SERVER_RUNTIME_DIR/.extract.XXXXXX")"
+    extract_tarball "$archive_path" "$staging_dir"
+
+    if [[ ! -d "$staging_dir/$archive_root" ]]; then
+      echo "Expected extracted directory '$archive_root' was not found in $archive_path." >&2
+      rm -rf "$staging_dir"
+      return 1
+    fi
+
+    rm -rf "$target_dir"
+    mv "$staging_dir/$archive_root" "$target_dir"
+    rm -rf "$staging_dir"
+  else
+    echo "Reusing embedded MySQL Server: $target_dir" >&2
+  fi
+
+  ln -sfn "$target_dir" "$current_link"
+  if [[ ! -x "$current_link/bin/mysqld" || ! -x "$current_link/bin/mysql" ]]; then
+    echo "Embedded MySQL Server binaries were not found under $current_link/bin." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$current_link"
+}
+
 mysql_server_version() {
+  local basedir="${1:-}"
   local version_output
-  version_output="$(mysqld --version 2>/dev/null || true)"
+  local mysqld_bin="mysqld"
+  if [[ -n "$basedir" ]]; then
+    mysqld_bin="$basedir/bin/mysqld"
+  fi
+  version_output="$("$mysqld_bin" --version 2>/dev/null || true)"
   printf '%s\n' "$version_output" | sed -nE 's/.*Ver[[:space:]]+([0-9]+(\.[0-9]+){1,2}).*/\1/p' | head -n 1
 }
 
 mysql_server_matches_required_series() {
+  local basedir="${1:-}"
   local version
-  version="$(mysql_server_version)"
+  version="$(mysql_server_version "$basedir")"
   [[ -n "$version" && "$version" == "$MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES".* ]]
 }
 
-write_mysql_yum_innovation_repo() {
-  local os_major="$1"
-  run_as_root tee /etc/yum.repos.d/mysql-innovation-community.repo >/dev/null <<EOF
-[mysql-innovation-community]
-name=MySQL Innovation Community Server
-baseurl=https://repo.mysql.com/yum/mysql-innovation-community/el/${os_major}/\$basearch/
-enabled=1
-gpgcheck=1
-gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
-module_hotfixes=true
-
-[mysql-tools-innovation-community]
-name=MySQL Tools Innovation Community
-baseurl=https://repo.mysql.com/yum/mysql-tools-innovation-community/el/${os_major}/\$basearch/
-enabled=1
-gpgcheck=1
-gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
-module_hotfixes=true
-EOF
-}
-
-write_mysql_yum_lts_repo() {
-  local os_major="$1"
-  run_as_root tee /etc/yum.repos.d/mysql84-community.repo >/dev/null <<EOF
-[mysql84-community]
-name=MySQL 8.4 LTS Community Server
-baseurl=https://repo.mysql.com/yum/mysql-8.4-community/el/${os_major}/\$basearch/
-enabled=0
-gpgcheck=1
-gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
-module_hotfixes=true
-EOF
-}
-
-disable_mysql_yum_non_innovation_repos() {
-  if compgen -G "/etc/yum.repos.d/mysql-community*.repo" >/dev/null; then
-    run_as_root sed -i \
-      -e '/^\[mysql80-community\]/,/^\[/ s/^enabled=1/enabled=0/' \
-      -e '/^\[mysql84-community\]/,/^\[/ s/^enabled=1/enabled=0/' \
-      /etc/yum.repos.d/mysql-community*.repo || true
-  fi
-}
-
-install_mysql_yum_innovation_server() {
-  local os_major="$1"
-  write_mysql_yum_innovation_repo "$os_major"
-  write_mysql_yum_lts_repo "$os_major"
-  disable_mysql_yum_non_innovation_repos
-  run_as_root dnf clean expire-cache || true
-  run_as_root dnf install -y mysql-community-server mysql-community-client
-  run_as_root dnf upgrade -y mysql-community-server mysql-community-client mysql-community-client-plugins mysql-community-common mysql-community-libs || true
-}
-
-install_mysql_yum_lts_server() {
-  local os_major="$1"
-  write_mysql_yum_lts_repo "$os_major"
-  run_as_root dnf clean expire-cache || true
-  run_as_root dnf --disablerepo='mysql-innovation-community' --enablerepo='mysql84-community' downgrade -y \
-    mysql-community-server \
-    mysql-community-client \
-    mysql-community-client-plugins \
-    mysql-community-common \
-    mysql-community-libs \
-    mysql-community-icu-data-files
-}
-
-ubuntu_codename() {
-  if command -v lsb_release >/dev/null 2>&1; then
-    lsb_release -cs
+install_embedded_mysql_server_dependencies() {
+  local os_family="$1"
+  if privileged_setup_skipped; then
     return 0
   fi
-  if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    source /etc/os-release
-    printf '%s\n' "${VERSION_CODENAME:-}"
-  fi
-}
-
-write_mysql_apt_innovation_repo() {
-  local codename="$1"
-  if [[ -z "$codename" ]]; then
-    echo "Unable to determine Ubuntu codename for MySQL Innovation APT repository." >&2
-    return 1
-  fi
-  run_as_root rm -f /etc/apt/sources.list.d/mysql.list /etc/apt/sources.list.d/mysql-community.list
-  run_as_root install -d -m 0755 /usr/share/keyrings
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | run_as_root gpg --batch --yes --dearmor -o /usr/share/keyrings/mysql.gpg
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO- https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | run_as_root gpg --batch --yes --dearmor -o /usr/share/keyrings/mysql.gpg
-  else
-    echo "curl or wget is required to install the MySQL APT repository key." >&2
-    return 1
-  fi
-  run_as_root chmod 0644 /usr/share/keyrings/mysql.gpg
-  run_as_root tee /etc/apt/sources.list.d/mysql-innovation.list >/dev/null <<EOF
-deb [signed-by=/usr/share/keyrings/mysql.gpg] https://repo.mysql.com/apt/ubuntu/ ${codename} mysql-innovation mysql-tools
-EOF
-}
-
-install_mysql_apt_innovation_server() {
-  run_as_root apt-get update
-  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates gnupg curl
-  write_mysql_apt_innovation_repo "$(ubuntu_codename)"
-  run_as_root apt-get update
-  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client
+  case "$os_family" in
+    ol8|ol9)
+      run_as_root dnf install -y libaio ncurses-compat-libs xz || true
+      ;;
+    ubuntu)
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio1 libncurses6 xz-utils || \
+        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio-dev libncurses6 xz-utils || true
+      ;;
+  esac
 }
 
 install_mysql_server_binaries() {
   local os_family="$1"
-  if command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1 && mysql_server_matches_required_series; then
+  local basedir
+  install_embedded_mysql_server_dependencies "$os_family"
+  basedir="$(install_embedded_mysql_server "$os_family" target)" || return 1
+  if mysql_server_matches_required_series "$basedir"; then
+    printf '%s\n' "$basedir"
     return 0
   fi
-  if privileged_setup_skipped; then
-    echo "MySQL Server ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x binaries are required for local-admin bootstrap. Install mysqld/mysql manually or rerun without SKIP_PRIVILEGED_SETUP." >&2
-    return 1
-  fi
-  case "$os_family" in
-    ol8)
-      run_as_root dnf -y module disable mysql || true
-      install_mysql_yum_innovation_server 8
-      ;;
-    ol9)
-      install_mysql_yum_innovation_server 9
-      ;;
-    ubuntu)
-      install_mysql_apt_innovation_server
-      ;;
-    macos)
-      if command -v brew >/dev/null 2>&1; then
-        brew install mysql || true
-        brew upgrade mysql || true
-      fi
-      ;;
-  esac
-  if ! command -v mysqld >/dev/null 2>&1 || ! command -v mysql >/dev/null 2>&1; then
-    echo "MySQL Server binaries were not found after installation." >&2
-    return 1
-  fi
-  if ! mysql_server_matches_required_series; then
-    echo "MySQL Server $(mysql_server_version) is installed, but ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x is required. Enable the MySQL Innovation repository and rerun setup.sh." >&2
-    return 1
-  fi
+  echo "Embedded MySQL Server $(mysql_server_version "$basedir") is installed, but ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x is required." >&2
+  return 1
 }
 
 bridge_local_mysql_through_lts_if_supported() {
   local os_family="$1"
   local basedir
-  case "$os_family" in
-    ol8)
-      echo "Attempting MySQL 8.4 LTS bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
-      install_mysql_yum_lts_server 8
-      ;;
-    ol9)
-      echo "Attempting MySQL 8.4 LTS bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
-      install_mysql_yum_lts_server 9
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-  basedir="$(local_mysql_basedir)" || return 1
+  echo "Attempting embedded MySQL ${MYSQL_SERVER_BRIDGE_VERSION} bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
+  basedir="$(install_embedded_mysql_server "$os_family" bridge)" || return 1
   write_local_mysql_config "$basedir"
   stop_local_mysql
   start_local_mysql
@@ -1295,17 +1284,23 @@ EOF
 }
 
 local_mysql_basedir() {
-  local mysqld_bin
-  mysqld_bin="$(command -v mysqld || true)"
-  if [[ -z "$mysqld_bin" ]]; then
-    return 1
+  if [[ -r "$LOCAL_MYSQL_CNF" ]]; then
+    sed -n 's/^basedir=//p' "$LOCAL_MYSQL_CNF" | tail -n 1
+    return 0
   fi
-  case "$mysqld_bin" in
-    /usr/sbin/mysqld|/usr/bin/mysqld) echo "/usr" ;;
-    */bin/mysqld) dirname "$(dirname "$mysqld_bin")" ;;
-    */libexec/mysqld) dirname "$(dirname "$mysqld_bin")" ;;
-    *) dirname "$(dirname "$mysqld_bin")" ;;
-  esac
+  printf '%s\n' "$MYSQL_SERVER_RUNTIME_DIR/current"
+}
+
+local_mysql_mysqld_bin() {
+  local basedir
+  basedir="$(local_mysql_basedir)"
+  printf '%s\n' "$basedir/bin/mysqld"
+}
+
+local_mysql_client_bin() {
+  local basedir
+  basedir="$(local_mysql_basedir)"
+  printf '%s\n' "$basedir/bin/mysql"
 }
 
 wait_for_local_mysql_socket() {
@@ -1352,10 +1347,12 @@ stop_local_mysql() {
 }
 
 start_local_mysql() {
+  local mysqld_bin
   if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && process_exists "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")"; then
     return 0
   fi
-  mysqld --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
+  mysqld_bin="$(local_mysql_mysqld_bin)"
+  "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
   wait_for_local_mysql_socket
 }
 
@@ -1374,9 +1371,9 @@ initialize_local_mysql_if_needed() {
   local defaults_file
   local escaped_user
   local escaped_password
+  local mysql_client
 
-  install_mysql_server_binaries "$os_family" || return 1
-  basedir="$(local_mysql_basedir)" || return 1
+  basedir="$(install_mysql_server_binaries "$os_family")" || return 1
   write_local_mysql_config "$basedir"
 
   if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
@@ -1392,7 +1389,7 @@ initialize_local_mysql_if_needed() {
   fi
 
   rm -rf "$LOCAL_MYSQL_DATADIR"
-  mysqld --defaults-file="$LOCAL_MYSQL_CNF" --initialize
+  "$(local_mysql_mysqld_bin)" --defaults-file="$LOCAL_MYSQL_CNF" --initialize
   temp_password="$(extract_temporary_mysql_password)"
   if [[ -z "$temp_password" ]]; then
     echo "Unable to read the temporary MySQL root password from $LOCAL_MYSQL_LOG_DIR/mysqld.err." >&2
@@ -1410,7 +1407,8 @@ EOF
   chmod 600 "$defaults_file"
   escaped_user="$(sql_quote "$LOCAL_MYSQL_ADMIN_USER")"
   escaped_password="$(sql_quote "$LOCAL_MYSQL_ADMIN_PASSWORD")"
-  mysql --defaults-extra-file="$defaults_file" --connect-expired-password <<SQL
+  mysql_client="$(local_mysql_client_bin)"
+  "$mysql_client" --defaults-extra-file="$defaults_file" --connect-expired-password <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${escaped_password}';
 RENAME USER 'root'@'localhost' TO '${escaped_user}'@'localhost';
 GRANT ALL PRIVILEGES ON *.* TO '${escaped_user}'@'localhost' WITH GRANT OPTION;

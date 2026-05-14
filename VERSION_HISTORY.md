@@ -1,10 +1,20 @@
 # Version History
 
-Current version: `1.0.5`
+Current version: `1.0.6`
+
+## 1.0.6 - 2026-05-14
+
+Status: Current
+
+- Reworked local-admin MySQL Server bootstrap to use embedded MySQL Community Server tarballs under `.embedded/mysql-server` instead of package-managed `mysqld`.
+- Defaulted the embedded MySQL Server target to `9.7.0` with configurable tarball URLs, runtime directory, downloads directory, and required major series.
+- Added embedded MySQL `8.4` LTS bridge-tarball support for old app-managed `8.0` datadirs before final `9.x` startup.
+- Updated OCI Compute init-script handling to install only embedded-server prerequisites and pass embedded MySQL settings through to `setup.sh`.
+- Updated Auto-Update pass-through so embedded MySQL Server version, URL, bridge, runtime, and download settings survive setup reruns.
 
 ## 1.0.5 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Reworked local-admin MySQL Server bootstrap to require MySQL Server `9.x` by default instead of accepting an existing `8.0` server binary.
 - Added MySQL Innovation repository setup for Oracle Linux and Ubuntu before installing `mysql-community-server` and `mysql-community-client`.

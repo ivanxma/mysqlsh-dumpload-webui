@@ -41,8 +41,8 @@
 - Python 3
 - Internet access during bootstrap so the Git repo and embedded MySQL Shell tarball can be downloaded
 - `sudo` or root access when the host needs package installation, firewall changes, or systemd service setup
-- MySQL Server `9.x` for the app-managed socket-only `local-admin-profile` bootstrap. `setup.sh` configures the MySQL Innovation repository and installs or upgrades `mysql-community-server` / `mysql-community-client`; it rejects an existing `8.0` `mysqld` for this local admin store.
-  On Oracle Linux, existing app-managed datadirs initialized by MySQL `8.0` are bridged through MySQL `8.4` LTS before final MySQL `9.x` startup because direct `8.0` to `9.x` server upgrades are not valid.
+- MySQL Server `9.x` for the app-managed socket-only `local-admin-profile` bootstrap. `setup.sh` downloads an embedded MySQL Community Server tarball into `.embedded/mysql-server/` and does not rely on package-managed `mysqld`; it rejects an existing OS `8.0` `mysqld` for this local admin store.
+  Existing app-managed datadirs initialized by MySQL `8.0` are bridged through an embedded MySQL `8.4` LTS tarball before final MySQL `9.x` startup because direct `8.0` to `9.x` server upgrades are not valid.
 - Network access from the app host to the target MySQL server
 - SSH private key access on the app host when using SSH-enabled profiles
 - OCI credentials available when using Object Storage features
@@ -54,7 +54,7 @@
 1. Clone the repository or work from an existing checkout.
 2. Run `./setup.sh`.
    This creates `.venv/`, installs Python dependencies, downloads an embedded MySQL Shell Innovation tarball into `runtime/mysqlsh/`, and saves the resolved runtime settings in `.runtime.env`.
-   For secured local-admin profile bootstrap, setup also installs MySQL Server from the MySQL Innovation repository and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`.
+   For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`.
 3. Start the app with `./start_http.sh` or `./start_https.sh`.
 4. Open the login page and sign in with a configured MySQL profile.
    Enable `Use SSH Tunnel` only when the MySQL server is reached through a jump host; the SSH fields stay disabled otherwise.
@@ -371,7 +371,7 @@ The updater:
 - verifies `MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL` and `MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH` when those trust-boundary values are set
 - runs `git fetch --all --prune` and `git pull --ff-only`
 - uses `MYSQL_SHELL_WEB_OS_FAMILY`, `.runtime.env OS_FAMILY`, or host detection to choose the `setup.sh` OS family
-- reruns `setup.sh` with saved host, port, TLS, Python, dependency-audit, local-admin bootstrap, and update trust-boundary defaults
+- reruns `setup.sh` with saved host, port, TLS, Python, embedded MySQL Server tarball, dependency-audit, local-admin bootstrap, and update trust-boundary defaults
 - restarts the active `mysql-shell-web-http.service`, `mysql-shell-web-https.service`, or both when systemd is in use
 - stores progress state and logs under `runtime/updates/` so the update page can recover after a restart
 - polls update status with a job-scoped token header so status reads can survive the brief server-side session reset during restart

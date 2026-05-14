@@ -30,6 +30,15 @@ LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
 LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
 LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-mysql}"
 LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-$APP_DIR/.data/run/mysql.sock}"
+MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES="${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES:-9}"
+MYSQL_SERVER_EMBEDDED_VERSION="${MYSQL_SERVER_EMBEDDED_VERSION:-9.7.0}"
+MYSQL_SERVER_BRIDGE_VERSION="${MYSQL_SERVER_BRIDGE_VERSION:-8.4.8}"
+MYSQL_SERVER_URL_LINUX_X86="${MYSQL_SERVER_URL_LINUX_X86:-}"
+MYSQL_SERVER_URL_LINUX_ARM="${MYSQL_SERVER_URL_LINUX_ARM:-}"
+MYSQL_SERVER_BRIDGE_URL_LINUX_X86="${MYSQL_SERVER_BRIDGE_URL_LINUX_X86:-}"
+MYSQL_SERVER_BRIDGE_URL_LINUX_ARM="${MYSQL_SERVER_BRIDGE_URL_LINUX_ARM:-}"
+MYSQL_SERVER_RUNTIME_DIR="${MYSQL_SERVER_RUNTIME_DIR:-}"
+MYSQL_SERVER_DOWNLOADS_DIR="${MYSQL_SERVER_DOWNLOADS_DIR:-}"
 
 STATE_DIR="/var/lib/${APP_SLUG}-init"
 INSTALLING_FLAG="$STATE_DIR/installing"
@@ -129,8 +138,26 @@ install_git() {
   fi
 }
 
+install_embedded_mysql_prerequisites() {
+  case "$OS_FAMILY" in
+    ol8|ol9)
+      if command -v dnf >/dev/null 2>&1; then
+        dnf install -y xz libaio ncurses-compat-libs || true
+      elif command -v yum >/dev/null 2>&1; then
+        yum install -y xz libaio ncurses-compat-libs || true
+      fi
+      ;;
+    ubuntu)
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive apt-get install -y xz-utils libaio1 libncurses6 || \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xz-utils libaio-dev libncurses6 || true
+      ;;
+  esac
+}
+
 ensure_user
 install_git
+install_embedded_mysql_prerequisites
 
 if [ "$LOCAL_MYSQL_BOOTSTRAP" = "1" ] && [ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]; then
   echo "LOCAL_MYSQL_ADMIN_PASSWORD must be explicitly set for first-boot local-admin-profile bootstrap." >&2
@@ -171,6 +198,15 @@ sudo -u "$APP_USER" env \
   LOCAL_MYSQL_ADMIN_PASSWORD="$LOCAL_MYSQL_ADMIN_PASSWORD" \
   LOCAL_MYSQL_DATABASE="$LOCAL_MYSQL_DATABASE" \
   LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET" \
+  MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES="$MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES" \
+  MYSQL_SERVER_EMBEDDED_VERSION="$MYSQL_SERVER_EMBEDDED_VERSION" \
+  MYSQL_SERVER_BRIDGE_VERSION="$MYSQL_SERVER_BRIDGE_VERSION" \
+  MYSQL_SERVER_URL_LINUX_X86="$MYSQL_SERVER_URL_LINUX_X86" \
+  MYSQL_SERVER_URL_LINUX_ARM="$MYSQL_SERVER_URL_LINUX_ARM" \
+  MYSQL_SERVER_BRIDGE_URL_LINUX_X86="$MYSQL_SERVER_BRIDGE_URL_LINUX_X86" \
+  MYSQL_SERVER_BRIDGE_URL_LINUX_ARM="$MYSQL_SERVER_BRIDGE_URL_LINUX_ARM" \
+  MYSQL_SERVER_RUNTIME_DIR="$MYSQL_SERVER_RUNTIME_DIR" \
+  MYSQL_SERVER_DOWNLOADS_DIR="$MYSQL_SERVER_DOWNLOADS_DIR" \
   bash ./setup.sh "${setup_args[@]}"
 
 if command -v systemctl >/dev/null 2>&1; then
