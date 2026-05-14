@@ -1249,6 +1249,32 @@ wait_for_local_mysql_socket() {
   return 1
 }
 
+stop_local_mysql() {
+  local pid
+  if [[ ! -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]]; then
+    return 0
+  fi
+  pid="$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" 2>/dev/null || true)"
+  if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ ]]; then
+    rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
+    return 0
+  fi
+  if ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
+    return 0
+  fi
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
+      return 0
+    fi
+    sleep 1
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" "$LOCAL_MYSQL_SOCKET"
+}
+
 start_local_mysql() {
   if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && kill -0 "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")" 2>/dev/null; then
     return 0
@@ -1278,6 +1304,7 @@ initialize_local_mysql_if_needed() {
   write_local_mysql_config "$basedir"
 
   if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
+    stop_local_mysql
     start_local_mysql
     return 0
   fi
