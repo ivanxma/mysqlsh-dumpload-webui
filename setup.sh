@@ -1243,7 +1243,7 @@ install_embedded_mysql_server_dependencies() {
 install_mysql_server_binaries() {
   local os_family="$1"
   local basedir
-  install_embedded_mysql_server_dependencies "$os_family"
+  install_embedded_mysql_server_dependencies "$os_family" >&2
   basedir="$(install_embedded_mysql_server "$os_family" target)" || return 1
   if mysql_server_matches_required_series "$basedir"; then
     printf '%s\n' "$basedir"
