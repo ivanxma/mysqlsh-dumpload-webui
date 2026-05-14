@@ -152,6 +152,7 @@ install_embedded_mysql_prerequisites() {
     ubuntu)
       apt-get update
       DEBIAN_FRONTEND=noninteractive apt-get install -y xz-utils libaio1 libncurses6 || \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xz-utils libaio1t64 libncurses6 || \
         DEBIAN_FRONTEND=noninteractive apt-get install -y xz-utils libaio-dev libncurses6 || true
       ;;
   esac
