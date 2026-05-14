@@ -1,10 +1,19 @@
 # Version History
 
-Current version: `1.0.6`
+Current version: `1.0.7`
+
+## 1.0.7 - 2026-05-14
+
+Status: Current
+
+- Added a dedicated `mysql-shell-web-local-mysql.service` for the embedded socket-only local-admin MySQL Server on Linux deployments.
+- Updated setup reruns and Auto-Update reruns to stop any ad-hoc embedded MySQL process and restart it under systemd before restarting the web service.
+- Fixed OL9 Auto-Update/login recovery where the web service returned after update but `local-admin-profile` could not connect because `.data/run/mysql.sock` no longer existed.
+- Updated deployment output and README service references to include the local embedded MySQL systemd unit.
 
 ## 1.0.6 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Reworked local-admin MySQL Server bootstrap to use embedded MySQL Community Server tarballs under `.embedded/mysql-server` instead of package-managed `mysqld`.
 - Defaulted the embedded MySQL Server target to `9.7.0` with configurable tarball URLs, runtime directory, downloads directory, and required major series.

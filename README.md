@@ -54,7 +54,7 @@
 1. Clone the repository or work from an existing checkout.
 2. Run `./setup.sh`.
    This creates `.venv/`, installs Python dependencies, downloads an embedded MySQL Shell Innovation tarball into `runtime/mysqlsh/`, and saves the resolved runtime settings in `.runtime.env`.
-   For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`.
+   For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`. On Linux deployments, setup installs and starts the socket-only embedded server as `mysql-shell-web-local-mysql.service` so Auto-Update or web-service restarts do not leave `local-admin-profile` without its local socket.
 3. Start the app with `./start_http.sh` or `./start_https.sh`.
 4. Open the login page and sign in with a configured MySQL profile.
    Enable `Use SSH Tunnel` only when the MySQL server is reached through a jump host; the SSH fields stay disabled otherwise.
@@ -110,6 +110,7 @@ The reusable init script lives at `oci_compute_init.sh`. It records:
 - Init log: `/var/log/mysql-shell-web-init.log`
 - State directory: `/var/lib/mysql-shell-web-init`
 - Login banner: `/etc/profile.d/mysql-shell-web-login-banner.sh`
+- Local embedded MySQL service: `mysql-shell-web-local-mysql.service`
 - Default HTTPS service: `mysql-shell-web-https.service`
 
 If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service. Generated systemd units grant `CAP_NET_BIND_SERVICE` only when the configured listener port is below `1024`, so the non-root service account can listen on privileged ports such as `80` and `443`.
@@ -155,6 +156,7 @@ Verify OL8 deployment:
 ```bash
 ssh -i <ssh-private-key> opc@<instance-public-ip>
 sudo systemctl status mysql-shell-web-https.service
+sudo systemctl status mysql-shell-web-local-mysql.service
 sudo tail -n 100 /var/log/mysql-shell-web-init.log
 curl -k -I https://<instance-public-ip>/
 ```
@@ -198,6 +200,7 @@ Verify OL9 deployment:
 ```bash
 ssh -i <ssh-private-key> opc@<instance-public-ip>
 sudo systemctl status mysql-shell-web-https.service
+sudo systemctl status mysql-shell-web-local-mysql.service
 sudo tail -n 100 /var/log/mysql-shell-web-init.log
 curl -k -I https://<instance-public-ip>/
 ```
@@ -238,6 +241,7 @@ Verify Ubuntu deployment:
 ```bash
 ssh -i <ssh-private-key> ubuntu@<instance-public-ip>
 sudo systemctl status mysql-shell-web-https.service
+sudo systemctl status mysql-shell-web-local-mysql.service
 sudo tail -n 100 /var/log/mysql-shell-web-init.log
 curl -k -I https://<instance-public-ip>/
 ```
@@ -372,6 +376,7 @@ The updater:
 - runs `git fetch --all --prune` and `git pull --ff-only`
 - uses `MYSQL_SHELL_WEB_OS_FAMILY`, `.runtime.env OS_FAMILY`, or host detection to choose the `setup.sh` OS family
 - reruns `setup.sh` with saved host, port, TLS, Python, embedded MySQL Server tarball, dependency-audit, local-admin bootstrap, and update trust-boundary defaults
+- ensures the embedded socket-only local-admin MySQL service, `mysql-shell-web-local-mysql.service`, is running before restarting the active web service
 - restarts the active `mysql-shell-web-http.service`, `mysql-shell-web-https.service`, or both when systemd is in use
 - stores progress state and logs under `runtime/updates/` so the update page can recover after a restart
 - polls update status with a job-scoped token header so status reads can survive the brief server-side session reset during restart

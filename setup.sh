@@ -1116,6 +1116,69 @@ setup_systemd_services() {
   esac
 }
 
+setup_local_mysql_systemd_service() {
+  local os_family="$1"
+  local service_user
+  local service_group
+  local service_name="${APP_SLUG}-local-mysql"
+  local unit_path="/etc/systemd/system/${service_name}.service"
+  local mysqld_bin
+  local bash_bin
+
+  case "$os_family" in
+    ol8|ol9|ubuntu) ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  if privileged_setup_skipped; then
+    echo "Skipping local MySQL systemd service setup because SKIP_PRIVILEGED_SETUP is set." >&2
+    return 0
+  fi
+
+  if [[ ! -d "$LOCAL_MYSQL_DATADIR/mysql" || ! -f "$LOCAL_MYSQL_CNF" ]]; then
+    return 0
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "systemctl was not found. Start local MySQL manually before using local-admin-profile." >&2
+    return 0
+  fi
+
+  service_user="$(resolve_service_user)"
+  service_group="$(resolve_service_group "$service_user")"
+  mysqld_bin="$(local_mysql_mysqld_bin)"
+  bash_bin="$(resolve_bash_bin)" || return 1
+
+  sudo tee "$unit_path" >/dev/null <<EOF
+[Unit]
+Description=$APP_NAME local embedded MySQL service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=$service_user
+Group=$service_group
+WorkingDirectory=$SCRIPT_DIR
+PIDFile=$LOCAL_MYSQL_RUN_DIR/mysqld.pid
+ExecStart=$bash_bin -lc 'exec "$mysqld_bin" --defaults-file="$LOCAL_MYSQL_CNF" --daemonize'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  stop_local_mysql
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now "${service_name}.service"
+  echo "Enabled systemd service ${service_name}.service."
+}
+
 repair_local_permissions() {
   local owner_user="${SERVICE_USER_INPUT:-}"
   local owner_group="${SERVICE_GROUP_INPUT:-$owner_user}"
@@ -1693,6 +1756,7 @@ main() {
   repair_local_permissions
   ensure_local_mysql_profile "$os_family"
   repair_local_permissions
+  setup_local_mysql_systemd_service "$os_family"
   mark_local_state_files
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 
@@ -1732,7 +1796,7 @@ main() {
   echo "HTTPS start script: $SCRIPT_DIR/start_https.sh"
   case "$os_family" in
     ol8|ol9|ubuntu)
-      echo "Systemd services: ${APP_SLUG}-http.service and ${APP_SLUG}-https.service"
+      echo "Systemd services: ${APP_SLUG}-local-mysql.service, ${APP_SLUG}-http.service and ${APP_SLUG}-https.service"
       ;;
   esac
   echo "Use PORT=<port> at launch time to override either saved default temporarily."
