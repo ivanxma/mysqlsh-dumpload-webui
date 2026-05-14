@@ -11,6 +11,8 @@ Status: Current
 - Persisted and passed through `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES` so setup reruns and Auto-Update keep the required server major series.
 - Added a clear setup failure when the installed `mysqld` version does not match the required series.
 - Restarted the app-managed local MySQL process during setup reruns so upgraded server binaries are actually used.
+- Enforced MySQL Server series checks for existing socket-only local-admin profiles, even when no bootstrap password is supplied.
+- Repaired ownership for generated runtime/profile/local-MySQL files when setup is rerun with root privileges for system deployment.
 
 ## 1.0.4 - 2026-05-14
 

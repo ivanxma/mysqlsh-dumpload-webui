@@ -1065,6 +1065,26 @@ setup_systemd_services() {
 }
 
 repair_local_permissions() {
+  local owner_user="${SERVICE_USER_INPUT:-}"
+  local owner_group="${SERVICE_GROUP_INPUT:-$owner_user}"
+  if [[ -n "$owner_user" && -n "$owner_group" ]] && ! privileged_setup_skipped; then
+    for path in \
+      "$RUNTIME_ENV_FILE" \
+      "$FLASK_SECRET_KEY_FILE" \
+      "$SCRIPT_DIR/profiles.json" \
+      "$SCRIPT_DIR/object_storage.json" \
+      "$SCRIPT_DIR/mysqlsh_option_profiles.json" \
+      "$SCRIPT_DIR/etc" \
+      "$SCRIPT_DIR/.data" \
+      "$SCRIPT_DIR/.embedded" \
+      "$SCRIPT_DIR/runtime" \
+      "$SCRIPT_DIR/profile_ssh_keys" \
+      "$SCRIPT_DIR/tls"; do
+      if [[ -e "$path" ]]; then
+        run_as_root chown -R "$owner_user:$owner_group" "$path" 2>/dev/null || true
+      fi
+    done
+  fi
   chmod 600 "$RUNTIME_ENV_FILE" 2>/dev/null || true
   chmod 600 "$FLASK_SECRET_KEY_FILE" 2>/dev/null || true
   chmod 600 "$SCRIPT_DIR/profiles.json" "$SCRIPT_DIR/object_storage.json" 2>/dev/null || true
@@ -1376,6 +1396,9 @@ PY
       echo "local-admin-profile is missing or not socket-only. Set LOCAL_MYSQL_ADMIN_PASSWORD and rerun setup.sh, or use the refreshed Auto-Update page bootstrap fields." >&2
       return 0
     fi
+    if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
+      initialize_local_mysql_if_needed "$os_family"
+    fi
   fi
 
   if [[ ! -f "$SCRIPT_DIR/profiles.json" && -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]]; then
@@ -1606,6 +1629,7 @@ main() {
 
   mysqlsh_binary="$(run_mysqlsh_installer "$os_family")"
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$mysqlsh_binary" "$os_family" "$deploy_mode"
+  repair_local_permissions
   ensure_local_mysql_profile "$os_family"
   repair_local_permissions
   mark_local_state_files
