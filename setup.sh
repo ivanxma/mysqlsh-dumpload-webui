@@ -1291,15 +1291,15 @@ install_python_if_possible() {
   fi
   case "$os_family" in
     ol8|ol9)
-      sudo dnf install -y python3.12 python3.12-pip python3.12-devel || true
+      sudo dnf install -y python3.12 python3.12-pip python3.12-devel >&2 || true
       ;;
     ubuntu)
-      sudo apt-get update
-      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv python3.12-dev || true
+      sudo apt-get update >&2
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv python3.12-dev >&2 || true
       ;;
     macos)
       if command -v brew >/dev/null 2>&1; then
-        brew install python@3.12 || true
+        brew install python@3.12 >&2 || true
       fi
       ;;
   esac
@@ -1341,6 +1341,10 @@ select_python_bin() {
 
 create_virtualenv() {
   local python_bin="$1"
+  if [[ "$python_bin" == *$'\n'* || ! -x "$python_bin" ]]; then
+    echo "Selected Python interpreter is invalid: $python_bin" >&2
+    return 1
+  fi
   if "$python_bin" -m venv "$VENV_DIR"; then
     return 0
   fi
