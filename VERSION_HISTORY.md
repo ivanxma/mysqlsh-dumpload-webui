@@ -1,10 +1,20 @@
 # Version History
 
-Current version: `1.0.10`
+Current version: `1.0.11`
+
+## 1.0.11 - 2026-05-14
+
+Status: Current
+
+- Added macOS embedded MySQL Server tarball defaults for x86_64 and arm64 so `setup.sh macos ...` provisions MySQL Server `9.7.0` under `.embedded/mysql-server/`.
+- Added macOS embedded MySQL `8.4.8` bridge-tarball defaults so old app-managed `8.0` datadirs can use the same upgrade bridge on macOS.
+- Persisted macOS embedded MySQL tarball override values into `.runtime.env` and passed them through Admin Auto-Update reruns.
+- Made setup fail clearly, after ensuring embedded MySQL Server binaries are present, when an existing `local-admin-profile` points to a missing local MySQL datadir/socket and no bootstrap password was supplied.
+- Documented the macOS tarball behavior and per-platform embedded MySQL Server URL override variables in the README.
 
 ## 1.0.10 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Added an `iptables` firewall fallback for Ubuntu OCI images that do not use `ufw` but reject inbound traffic after SSH by default.
 - Persisted the generated `iptables` allowance to `/etc/iptables/rules.v4` when `iptables-save` and `/etc/iptables` are available.

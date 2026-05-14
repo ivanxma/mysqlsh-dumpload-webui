@@ -54,7 +54,8 @@
 1. Clone the repository or work from an existing checkout.
 2. Run `./setup.sh`.
    This creates `.venv/`, installs Python dependencies, downloads an embedded MySQL Shell Innovation tarball into `runtime/mysqlsh/`, and saves the resolved runtime settings in `.runtime.env`.
-   For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`. On Linux deployments, setup installs and starts the socket-only embedded server as `mysql-shell-web-local-mysql.service` so Auto-Update or web-service restarts do not leave `local-admin-profile` without its local socket.
+   For secured local-admin profile bootstrap, setup also downloads embedded MySQL Server, default `MYSQL_SERVER_EMBEDDED_VERSION=9.7.0`, and requires the configured server series, default `MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES=9`. On macOS, setup uses the macOS Community Server tarball for the current architecture under `.embedded/mysql-server/` and starts the socket-only app-managed server from that tarball. If `local-admin-profile` already exists but the local MySQL datadir/socket is missing, rerun setup with `LOCAL_MYSQL_ADMIN_PASSWORD` so the embedded server can initialize the local admin store.
+   On Linux deployments, setup installs and starts the socket-only embedded server as `mysql-shell-web-local-mysql.service` so Auto-Update or web-service restarts do not leave `local-admin-profile` without its local socket.
    On Ubuntu 24.04, setup handles the `libaio1t64` package transition by creating an app-local compatibility library path for embedded MySQL tarballs that still link to `libaio.so.1`.
 3. Start the app with `./start_http.sh` or `./start_https.sh`.
 4. Open the login page and sign in with a configured MySQL profile.
@@ -80,6 +81,13 @@ Optional bootstrap overrides:
 - `BOOTSTRAP_REPO_URL`: clone from a different Git URL
 - `BOOTSTRAP_CLONE_DIR`: clone into a different folder name
 - `BOOTSTRAP_PARENT_DIR`: clone into a different parent directory
+
+Embedded MySQL Server tarball overrides:
+
+- `MYSQL_SERVER_URL_LINUX_X86`, `MYSQL_SERVER_URL_LINUX_ARM`
+- `MYSQL_SERVER_URL_MACOS_X86`, `MYSQL_SERVER_URL_MACOS_ARM`
+- `MYSQL_SERVER_BRIDGE_URL_LINUX_X86`, `MYSQL_SERVER_BRIDGE_URL_LINUX_ARM`
+- `MYSQL_SERVER_BRIDGE_URL_MACOS_X86`, `MYSQL_SERVER_BRIDGE_URL_MACOS_ARM`
 
 Example:
 

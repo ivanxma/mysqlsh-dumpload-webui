@@ -179,8 +179,12 @@ MYSQL_SERVER_EMBEDDED_VERSION="${MYSQL_SERVER_EMBEDDED_VERSION:-9.7.0}"
 MYSQL_SERVER_BRIDGE_VERSION="${MYSQL_SERVER_BRIDGE_VERSION:-8.4.8}"
 MYSQL_SERVER_URL_LINUX_X86="${MYSQL_SERVER_URL_LINUX_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-linux-glibc2.28-x86_64.tar.xz}"
 MYSQL_SERVER_URL_LINUX_ARM="${MYSQL_SERVER_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-linux-glibc2.28-aarch64.tar.xz}"
+MYSQL_SERVER_URL_MACOS_X86="${MYSQL_SERVER_URL_MACOS_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-macos15-x86_64.tar.gz}"
+MYSQL_SERVER_URL_MACOS_ARM="${MYSQL_SERVER_URL_MACOS_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_EMBEDDED_VERSION%.*}/mysql-${MYSQL_SERVER_EMBEDDED_VERSION}-macos15-arm64.tar.gz}"
 MYSQL_SERVER_BRIDGE_URL_LINUX_X86="${MYSQL_SERVER_BRIDGE_URL_LINUX_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-linux-glibc2.28-x86_64.tar.xz}"
 MYSQL_SERVER_BRIDGE_URL_LINUX_ARM="${MYSQL_SERVER_BRIDGE_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-linux-glibc2.28-aarch64.tar.xz}"
+MYSQL_SERVER_BRIDGE_URL_MACOS_X86="${MYSQL_SERVER_BRIDGE_URL_MACOS_X86:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-macos15-x86_64.tar.gz}"
+MYSQL_SERVER_BRIDGE_URL_MACOS_ARM="${MYSQL_SERVER_BRIDGE_URL_MACOS_ARM:-https://dev.mysql.com/get/Downloads/MySQL-${MYSQL_SERVER_BRIDGE_VERSION%.*}/mysql-${MYSQL_SERVER_BRIDGE_VERSION}-macos15-arm64.tar.gz}"
 MYSQL_SERVER_RUNTIME_DIR="${MYSQL_SERVER_RUNTIME_DIR:-$SCRIPT_DIR/.embedded/mysql-server}"
 MYSQL_SERVER_DOWNLOADS_DIR="${MYSQL_SERVER_DOWNLOADS_DIR:-$SCRIPT_DIR/runtime/downloads}"
 FLASK_SECRET_KEY_FILE="${FLASK_SECRET_KEY_FILE:-$SCRIPT_DIR/.flask_secret_key}"
@@ -226,8 +230,10 @@ Environment overrides:
   MYSQLSH_BINARY, MYSQLSH_EMBEDDED_VERSION, MYSQLSH_RUNTIME_DIR,
   MYSQLSH_DOWNLOADS_DIR, MYSQL_SERVER_EMBEDDED_VERSION,
   MYSQL_SERVER_BRIDGE_VERSION, MYSQL_SERVER_URL_LINUX_X86,
-  MYSQL_SERVER_URL_LINUX_ARM, MYSQL_SERVER_BRIDGE_URL_LINUX_X86,
-  MYSQL_SERVER_BRIDGE_URL_LINUX_ARM, MYSQL_SERVER_RUNTIME_DIR,
+  MYSQL_SERVER_URL_LINUX_ARM, MYSQL_SERVER_URL_MACOS_X86,
+  MYSQL_SERVER_URL_MACOS_ARM, MYSQL_SERVER_BRIDGE_URL_LINUX_X86,
+  MYSQL_SERVER_BRIDGE_URL_LINUX_ARM, MYSQL_SERVER_BRIDGE_URL_MACOS_X86,
+  MYSQL_SERVER_BRIDGE_URL_MACOS_ARM, MYSQL_SERVER_RUNTIME_DIR,
   MYSQL_SERVER_DOWNLOADS_DIR,
   SKIP_PRIVILEGED_SETUP,
   MYSQL_SHELL_WEB_PYTHON_BIN, MYSQL_SHELL_WEB_PYTHON_MIN_VERSION,
@@ -661,8 +667,12 @@ resolve_mysql_server_download_url() {
   case "${os_family}:${machine_arch}:${version_kind}" in
     ubuntu:x86_64:target|ol8:x86_64:target|ol9:x86_64:target) echo "$MYSQL_SERVER_URL_LINUX_X86" ;;
     ubuntu:arm64:target|ol8:arm64:target|ol9:arm64:target) echo "$MYSQL_SERVER_URL_LINUX_ARM" ;;
+    macos:x86_64:target) echo "$MYSQL_SERVER_URL_MACOS_X86" ;;
+    macos:arm64:target) echo "$MYSQL_SERVER_URL_MACOS_ARM" ;;
     ubuntu:x86_64:bridge|ol8:x86_64:bridge|ol9:x86_64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_LINUX_X86" ;;
     ubuntu:arm64:bridge|ol8:arm64:bridge|ol9:arm64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_LINUX_ARM" ;;
+    macos:x86_64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_MACOS_X86" ;;
+    macos:arm64:bridge) echo "$MYSQL_SERVER_BRIDGE_URL_MACOS_ARM" ;;
     *)
       echo "No embedded MySQL Server tarball is configured for OS family '$os_family' on architecture '$machine_arch'." >&2
       return 1
@@ -854,8 +864,12 @@ write_runtime_env() {
     echo "MYSQL_SERVER_DOWNLOADS_DIR=$MYSQL_SERVER_DOWNLOADS_DIR"
     echo "MYSQL_SERVER_URL_LINUX_X86=$MYSQL_SERVER_URL_LINUX_X86"
     echo "MYSQL_SERVER_URL_LINUX_ARM=$MYSQL_SERVER_URL_LINUX_ARM"
+    echo "MYSQL_SERVER_URL_MACOS_X86=$MYSQL_SERVER_URL_MACOS_X86"
+    echo "MYSQL_SERVER_URL_MACOS_ARM=$MYSQL_SERVER_URL_MACOS_ARM"
     echo "MYSQL_SERVER_BRIDGE_URL_LINUX_X86=$MYSQL_SERVER_BRIDGE_URL_LINUX_X86"
     echo "MYSQL_SERVER_BRIDGE_URL_LINUX_ARM=$MYSQL_SERVER_BRIDGE_URL_LINUX_ARM"
+    echo "MYSQL_SERVER_BRIDGE_URL_MACOS_X86=$MYSQL_SERVER_BRIDGE_URL_MACOS_X86"
+    echo "MYSQL_SERVER_BRIDGE_URL_MACOS_ARM=$MYSQL_SERVER_BRIDGE_URL_MACOS_ARM"
     if [[ "$deploy_mode" == "https" || "$deploy_mode" == "both" ]]; then
       echo "MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE=1"
     else
@@ -1594,6 +1608,11 @@ PY
     fi
     if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
       initialize_local_mysql_if_needed "$os_family"
+    elif [[ ! -S "$LOCAL_MYSQL_SOCKET" ]]; then
+      install_mysql_server_binaries "$os_family" >/dev/null || return 1
+      echo "local-admin-profile exists, but the app-managed MySQL datadir/socket is missing." >&2
+      echo "Set LOCAL_MYSQL_ADMIN_PASSWORD and rerun setup.sh so the embedded MySQL Server can initialize the socket-only local admin store." >&2
+      return 1
     fi
   fi
 
