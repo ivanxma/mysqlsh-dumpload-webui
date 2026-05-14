@@ -6,6 +6,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from .config import SYSTEM_SCHEMAS
+from .profiles import resolve_stored_ssh_key_path
 
 AUTO_FIX_PRIMARY_KEY_COLUMN = "my_row_id"
 _IDENTIFIER_TOKEN_RE = re.compile(r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_$]*)")
@@ -53,17 +54,24 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 @contextmanager
 def mysql_endpoint(profile):
     tunnel = None
+    if profile.get("mode") == "socket":
+        if not profile.get("socket"):
+            raise ValueError("The selected socket profile does not have a MySQL socket configured.")
+        yield {"unix_socket": profile["socket"]}
+        return
+
     target_host = profile["host"]
     target_port = profile["port"]
 
     if profile["ssh_enabled"]:
         if SSHTunnelForwarder is None:
             raise RuntimeError("SSH tunneling requires the `sshtunnel` package.")
-        if not profile["ssh_host"] or not profile["ssh_user"] or not profile["ssh_key_path"]:
+        resolved_key_path = resolve_stored_ssh_key_path(profile) or str(profile.get("ssh_key_path", "")).strip()
+        if not profile["ssh_host"] or not profile["ssh_user"] or not resolved_key_path:
             raise ValueError("SSH-enabled profiles require jump host, SSH user, and private key path.")
-        expanded_key_path = os.path.expanduser(profile["ssh_key_path"])
+        expanded_key_path = os.path.expanduser(resolved_key_path)
         if not os.path.exists(expanded_key_path):
-            raise ValueError(f"SSH private key does not exist: {expanded_key_path}")
+            raise ValueError("SSH private key is not available for the selected profile.")
         expanded_config_path = os.path.expanduser(str(profile.get("ssh_config_file", "")).strip())
         if expanded_config_path and not os.path.exists(expanded_config_path):
             raise ValueError(f"SSH config file does not exist: {expanded_config_path}")
@@ -94,14 +102,15 @@ def mysql_endpoint(profile):
 def mysql_connection(profile, credentials, *, database_override=None, connect_timeout=5, autocommit=True):
     if not credentials["username"]:
         raise ValueError("No active MySQL username is stored in the current session.")
-    if not profile["host"]:
+    if profile.get("mode") == "socket":
+        if not profile.get("socket"):
+            raise ValueError("The selected profile does not have a MySQL socket configured.")
+    elif not profile["host"]:
         raise ValueError("The selected profile does not have a MySQL host configured.")
 
     connection = None
     with mysql_endpoint(profile) as endpoint:
-        connection = pymysql.connect(
-            host=endpoint["host"],
-            port=endpoint["port"],
+        connection_options = dict(
             user=credentials["username"],
             password=credentials["password"],
             database=database_override or profile["database"] or None,
@@ -109,6 +118,14 @@ def mysql_connection(profile, credentials, *, database_override=None, connect_ti
             charset="utf8mb4",
             cursorclass=DictCursor,
             autocommit=autocommit,
+        )
+        if "unix_socket" in endpoint:
+            connection_options["unix_socket"] = endpoint["unix_socket"]
+        else:
+            connection_options["host"] = endpoint["host"]
+            connection_options["port"] = endpoint["port"]
+        connection = pymysql.connect(
+            **connection_options,
         )
         try:
             yield connection

@@ -92,12 +92,13 @@ For an OCI Compute deployment, create a Linux VM and let the instance bootstrap 
 Instance values to choose before creation:
 
 - Compartment: your target compartment name or OCID
-- Platform: Oracle Linux 9 or Ubuntu
+- Platform: Oracle Linux 8, Oracle Linux 9, or Ubuntu
 - Shape and image: select a supported shape and matching platform image
 - Network: VCN, subnet, public IP setting, and security list or NSG
-- SSH public key: the key used for the expected login user
+- SSH public key: the key used for the expected login user (`opc` on Oracle Linux, `ubuntu` on Ubuntu)
 - Deploy mode: `http`, `https`, or `both`
 - Ingress: TCP `22` for SSH plus TCP `80`, `443`, or your chosen listener ports
+- Local admin bootstrap password: an explicit temporary password passed as `LOCAL_MYSQL_ADMIN_PASSWORD`
 
 In the OCI Console, create the instance, open `Advanced options` > `Management`, and paste the matching initialization script into `Initialization script`. The script installs `git` if needed, clones or refreshes this repository, runs `setup.sh`, records install state, and installs a login banner for setup progress.
 
@@ -108,7 +109,52 @@ The reusable init script lives at `oci_compute_init.sh`. It records:
 - Login banner: `/etc/profile.d/mysql-shell-web-login-banner.sh`
 - Default HTTPS service: `mysql-shell-web-https.service`
 
-If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service. The generated systemd units grant `CAP_NET_BIND_SERVICE`, so the non-root service account can listen on privileged ports such as `80` and `443`.
+If you do not set `SSL_CERT_FILE` and `SSL_KEY_FILE`, `setup.sh` generates a self-signed certificate automatically for the HTTPS service. Generated systemd units grant `CAP_NET_BIND_SERVICE` only when the configured listener port is below `1024`, so the non-root service account can listen on privileged ports such as `80` and `443`.
+
+The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` when `LOCAL_MYSQL_BOOTSTRAP=1`. The password is passed only through the setup process environment. Do not put it in Git, `.runtime.env`, shell history, or long-lived scripts. After setup, log in with `local-admin-profile`, user `localadmin`, and the temporary password; the app forces an immediate password change and logs out.
+
+#### Oracle Linux 8
+
+Expected login user: `opc`
+
+Paste this OL8 init wrapper into the OCI initialization script field:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+if ! command -v curl >/dev/null 2>&1; then
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y curl
+  else
+    yum install -y curl
+  fi
+fi
+
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
+  -o /tmp/mysql-shell-web-oci-compute-init.sh
+
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_DIR="/home/opc/mysqlsh-dumpload-webui" \
+APP_USER="opc" \
+APP_GROUP="opc" \
+OS_FAMILY="ol8" \
+DEPLOY_MODE="https" \
+HTTP_PORT="80" \
+HTTPS_PORT="443" \
+SERVICE_NAME="mysql-shell-web-https.service" \
+LOCAL_MYSQL_ADMIN_PASSWORD="<temporary-localadmin-password>" \
+bash /tmp/mysql-shell-web-oci-compute-init.sh
+```
+
+Verify OL8 deployment:
+
+```bash
+ssh -i <ssh-private-key> opc@<instance-public-ip>
+sudo systemctl status mysql-shell-web-https.service
+sudo tail -n 100 /var/log/mysql-shell-web-init.log
+curl -k -I https://<instance-public-ip>/
+```
 
 #### Oracle Linux 9
 
@@ -118,7 +164,7 @@ Paste this OL9 init wrapper into the OCI initialization script field:
 
 ```bash
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 if ! command -v curl >/dev/null 2>&1; then
   if command -v dnf >/dev/null 2>&1; then
@@ -140,6 +186,7 @@ DEPLOY_MODE="https" \
 HTTP_PORT="80" \
 HTTPS_PORT="443" \
 SERVICE_NAME="mysql-shell-web-https.service" \
+LOCAL_MYSQL_ADMIN_PASSWORD="<temporary-localadmin-password>" \
 bash /tmp/mysql-shell-web-oci-compute-init.sh
 ```
 
@@ -160,7 +207,7 @@ Paste this Ubuntu init wrapper into the OCI initialization script field:
 
 ```bash
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 if ! command -v curl >/dev/null 2>&1; then
   apt-get update
@@ -179,6 +226,7 @@ DEPLOY_MODE="https" \
 HTTP_PORT="80" \
 HTTPS_PORT="443" \
 SERVICE_NAME="mysql-shell-web-https.service" \
+LOCAL_MYSQL_ADMIN_PASSWORD="<temporary-localadmin-password>" \
 bash /tmp/mysql-shell-web-oci-compute-init.sh
 ```
 
@@ -275,15 +323,18 @@ The Object Storage bucket settings remain local to the checkout in `object_stora
 
 ## SSH Tunnel Behavior
 
-- Saved profiles can define a jump host, SSH user, SSH port, and private key path.
+- Profile management is available only after signing in through `local-admin-profile`.
+- Saved profiles can define a jump host, SSH user, SSH port, and an uploaded private key.
 - Profiles can also define an optional MySQL Shell SSH config file for long-running dump/load keepalive settings such as `ServerAliveInterval`.
 - Profile-based MySQL connectivity is available from the login flow and schema discovery helpers.
 - SSH-enabled MySQL Shell jobs keep an app-managed SSH forward open for the full `mysqlsh` process and rewrite the runtime request so `mysqlsh` connects through that local forwarded port.
 - SSH-backed `loadDump` jobs automatically retry connection-loss failures by reusing the progress file. Parallel runs retry with `threads=1`; single-threaded runs retry once more with the same options.
-- The private key path in the selected profile must exist on the host where this web app runs.
+- Uploaded SSH private keys are stored under `profile_ssh_keys/` with owner-only permissions and the key path is not rendered back to the browser.
 
 ## Login Session Security
 
+- The login page displays only saved profile names and an optional default username. It does not render hostnames, ports, sockets, SSH jump hosts, or key paths before authentication.
+- `local-admin-profile` is socket-only. First login after bootstrap forces a password change and logs the user out after the password is changed.
 - The browser-visible Flask session cookie contains only app scope/version markers and an opaque server-side session id.
 - MySQL usernames, MySQL passwords, and active connection profiles are held in server-side memory for the active app session and are cleared on logout, connection loss, or login replacement.
 - If the server restarts and the in-memory login entry is gone, authenticated requests are redirected to the login page instead of reusing stale cookie state.
@@ -291,11 +342,13 @@ The Object Storage bucket settings remain local to the checkout in `object_stora
 
 ## Runtime and Local Files
 
-- `.runtime.env`, `.venv/`, `runtime/`, `tls/`, and `par_registry.json` are local runtime artifacts and are git-ignored.
+- `.runtime.env`, `.venv/`, `runtime/`, `.data/`, `.embedded/`, `tls/`, `profile_ssh_keys/`, generated `etc/my.cnf`, and `par_registry.json` are local runtime artifacts and are git-ignored.
 - `appver.json` stores the running application version shown in the authenticated header and Admin update page.
 - `.runtime.env` stores the resolved embedded `MYSQLSH_BINARY` path used by the app and systemd services.
-- `profiles.json` is an editable local default file checked into the repo, but environment-specific SSH hosts, usernames, and private key paths should stay local and should not be committed back.
-- `setup.sh` marks tracked `profiles.json` as local-only for the current checkout with `git update-index --skip-worktree` so saved deployment profiles do not block Admin auto-update.
+- `secured_connection_profile_setup.sh` creates or repairs the non-secret `local-admin-profile` metadata and prepares the app-owned SSH key directory.
+- `setup.sh` persists deploy mode, listener ports, Python policy, secure-cookie mode, version-check URL/CA-bundle overrides, and update trust-boundary settings in `.runtime.env`.
+- `profiles.example.json` shows the safe starter shape. `profiles.json` should remain local to each deployment; do not commit environment-specific SSH hosts, usernames, key paths, tokens, or passwords.
+- `profiles.json` is git-ignored and should stay deployment-local so saved profiles do not block Admin auto-update.
 - `object_storage.json` is intentionally local-only and git-ignored because it can contain sensitive tenancy, namespace, bucket, and folder metadata.
 - `mysqlsh_option_profiles.json` is created on first use and stores saved dump/load option profiles.
 - `runtime/progress/` stores generated progress files and transient request payloads.
@@ -307,16 +360,20 @@ The Object Storage bucket settings remain local to the checkout in `object_stora
 
 Use `Admin > Update MySQL Shell Web` after logging in to update the running application from its current Git branch.
 
-On successful login, the app compares local `appver.json` with the repository version file. Set `MYSQL_SHELL_WEB_VERSION_URL` to the raw `appver.json` URL when the GitHub raw URL cannot be inferred from `remote.origin.url`; if the repository version differs, the user is redirected to `Admin > Update MySQL Shell Web`. The update page also provides `Retrieve Repo Version` to rerun that version check without starting an update.
+On successful login, the app compares local `appver.json` with the repository version file. Set `MYSQL_SHELL_WEB_VERSION_URL` when the repository version URL cannot be inferred from `remote.origin.url`; GitHub raw URLs are normalized to the GitHub contents API to avoid stale raw CDN reads. Set `MYSQL_SHELL_WEB_VERSION_CA_BUNDLE` when the host uses a private trust store. If the repository version differs, the user is redirected to `Admin > Update MySQL Shell Web`. The update page also provides `Retrieve Repo Version` to rerun that version check without starting an update.
 
 The updater:
 
-- requires a clean Git worktree before it pulls changes
+- requires a clean Git worktree before it pulls changes, ignoring only explicit local deployment state such as `.runtime.env`, `.data/`, `runtime/`, `tls/`, `profile_ssh_keys/`, and generated security/audit output
+- verifies `MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL` and `MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH` when those trust-boundary values are set
 - runs `git fetch --all --prune` and `git pull --ff-only`
 - uses `MYSQL_SHELL_WEB_OS_FAMILY`, `.runtime.env OS_FAMILY`, or host detection to choose the `setup.sh` OS family
-- reruns `setup.sh` with saved host, port, TLS, service user, and service group defaults
+- reruns `setup.sh` with saved host, port, TLS, Python, dependency-audit, local-admin bootstrap, and update trust-boundary defaults
 - restarts the active `mysql-shell-web-http.service`, `mysql-shell-web-https.service`, or both when systemd is in use
 - stores progress state and logs under `runtime/updates/` so the update page can recover after a restart
+- polls update status with a job-scoped token header so status reads can survive the brief server-side session reset during restart
+
+After `local-admin-profile` exists, starting updates requires a session authenticated through that profile. Older update pages that cannot prompt for the local admin password can perform a code refresh first; after restart, rerun Auto-Update from the refreshed page and provide the one-time `localadmin` temporary password so setup can repair the socket-only local admin profile.
 
 For a full update from the web UI, the running service account needs passwordless `sudo` for setup steps that refresh systemd units, firewall rules, and TLS file ownership. If passwordless `sudo` is unavailable, the updater falls back to `SKIP_PRIVILEGED_SETUP=1`; it still refreshes the repository and Python environment, then restarts by terminating the current service process and letting systemd recover it. Run `./setup.sh` manually later if the pulled changes require privileged service, firewall, or TLS ownership changes.
 

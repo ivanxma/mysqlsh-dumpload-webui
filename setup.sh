@@ -175,6 +175,23 @@ MYSQLSH_URL_LINUX_X86="${MYSQLSH_URL_LINUX_X86:-https://dev.mysql.com/get/Downlo
 MYSQLSH_URL_LINUX_ARM="${MYSQLSH_URL_LINUX_ARM:-https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQLSH_EMBEDDED_VERSION}-linux-glibc2.28-arm-64bit.tar.gz}"
 MYSQLSH_RUNTIME_DIR="${MYSQLSH_RUNTIME_DIR:-$SCRIPT_DIR/runtime/mysqlsh}"
 MYSQLSH_DOWNLOADS_DIR="${MYSQLSH_DOWNLOADS_DIR:-$SCRIPT_DIR/runtime/downloads}"
+FLASK_SECRET_KEY_FILE="${FLASK_SECRET_KEY_FILE:-$SCRIPT_DIR/.flask_secret_key}"
+MYSQL_SHELL_WEB_PYTHON_BIN="${MYSQL_SHELL_WEB_PYTHON_BIN:-}"
+MYSQL_SHELL_WEB_PYTHON_MIN_VERSION="${MYSQL_SHELL_WEB_PYTHON_MIN_VERSION:-3.12}"
+MYSQL_SHELL_WEB_DEPENDENCY_AUDIT="${MYSQL_SHELL_WEB_DEPENDENCY_AUDIT:-warn}"
+MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT="${MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT:-0}"
+MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY="${MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY:-0}"
+LOCAL_MYSQL_PROFILE_NAME="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
+LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
+LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-$SCRIPT_DIR/.data/run/mysql.sock}"
+LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-mysql}"
+LOCAL_MYSQL_CNF="$SCRIPT_DIR/etc/my.cnf"
+LOCAL_MYSQL_DATADIR="$SCRIPT_DIR/.data/mysql"
+LOCAL_MYSQL_RUN_DIR="$SCRIPT_DIR/.data/run"
+LOCAL_MYSQL_LOG_DIR="$SCRIPT_DIR/.data/log"
+LOCAL_MYSQL_TMP_DIR="$SCRIPT_DIR/.data/tmp"
+LOCAL_MYSQL_BOOTSTRAP_DEFAULTS="$SCRIPT_DIR/.data/mysql-bootstrap.cnf"
 EXISTING_DEFAULT_HTTP_PORT=""
 EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
@@ -198,7 +215,11 @@ Environment overrides:
   OS_FAMILY, DEPLOY_MODE, HOST, HTTP_PORT, HTTPS_PORT, SSL_CERT_FILE,
   SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
   MYSQLSH_BINARY, MYSQLSH_EMBEDDED_VERSION, MYSQLSH_RUNTIME_DIR,
-  MYSQLSH_DOWNLOADS_DIR, SKIP_PRIVILEGED_SETUP
+  MYSQLSH_DOWNLOADS_DIR, SKIP_PRIVILEGED_SETUP,
+  MYSQL_SHELL_WEB_PYTHON_BIN, MYSQL_SHELL_WEB_PYTHON_MIN_VERSION,
+  MYSQL_SHELL_WEB_DEPENDENCY_AUDIT, MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT,
+  LOCAL_MYSQL_PROFILE_NAME, LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD,
+  LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -289,6 +310,17 @@ parse_args() {
 
 to_lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+run_as_root() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "Root privileges are required for: $*" >&2
+    return 1
+  fi
 }
 
 normalize_os_family() {
@@ -739,6 +771,20 @@ write_runtime_env() {
     echo "DEFAULT_HTTP_PORT=$http_port"
     echo "DEFAULT_HTTPS_PORT=$https_port"
     echo "MYSQLSH_BINARY=$mysqlsh_binary"
+    echo "FLASK_SECRET_KEY_FILE=$FLASK_SECRET_KEY_FILE"
+    echo "MYSQL_SHELL_WEB_PYTHON_BIN=${MYSQL_SHELL_WEB_PYTHON_BIN:-}"
+    echo "MYSQL_SHELL_WEB_PYTHON_MIN_VERSION=$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"
+    echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT"
+    echo "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT=$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT"
+    if [[ "$deploy_mode" == "https" || "$deploy_mode" == "both" ]]; then
+      echo "MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE=1"
+    else
+      echo "MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE=${MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE:-0}"
+    fi
+    echo "MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL=${MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL:-}"
+    echo "MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH=${MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH:-}"
+    echo "MYSQL_SHELL_WEB_VERSION_URL=${MYSQL_SHELL_WEB_VERSION_URL:-}"
+    echo "MYSQL_SHELL_WEB_VERSION_CA_BUNDLE=${MYSQL_SHELL_WEB_VERSION_CA_BUNDLE:-}"
     if [[ -n "$ssl_cert_file" ]]; then
       echo "SSL_CERT_FILE=$ssl_cert_file"
     else
@@ -771,6 +817,20 @@ fix_tls_permissions() {
   if [[ -n "$service_user" && -n "$service_group" ]]; then
     sudo chown "$service_user:$service_group" "$ssl_cert_file" "$ssl_key_file"
   fi
+}
+
+ensure_flask_secret_key() {
+  if [[ -s "$FLASK_SECRET_KEY_FILE" ]]; then
+    chmod 600 "$FLASK_SECRET_KEY_FILE" 2>/dev/null || true
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$FLASK_SECRET_KEY_FILE")"
+  "$VENV_DIR/bin/python" - <<'PY' >"$FLASK_SECRET_KEY_FILE"
+import secrets
+print(secrets.token_hex(32))
+PY
+  chmod 600 "$FLASK_SECRET_KEY_FILE"
 }
 
 generate_self_signed_tls_assets() {
@@ -877,6 +937,7 @@ install_systemd_service() {
   local exec_script="$3"
   local service_user="$4"
   local service_group="$5"
+  local bind_capability="$6"
   local unit_path="/etc/systemd/system/${service_name}.service"
   local bash_bin
 
@@ -895,8 +956,7 @@ Group=$service_group
 WorkingDirectory=$SCRIPT_DIR
 EnvironmentFile=-$RUNTIME_ENV_FILE
 ExecStart=$bash_bin $exec_script
-# Allow the non-root service user to bind to privileged ports such as 80/443.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+$(if [[ "$bind_capability" == "yes" ]]; then printf '%s\n' 'AmbientCapabilities=CAP_NET_BIND_SERVICE'; fi)
 Restart=on-failure
 RestartSec=5
 
@@ -940,6 +1000,8 @@ setup_systemd_services() {
   local deploy_mode="$2"
   local ssl_cert_file="$3"
   local ssl_key_file="$4"
+  local http_port="${5:-}"
+  local https_port="${6:-}"
   local service_user
   local service_group
   local http_service="${APP_SLUG}-http"
@@ -965,8 +1027,8 @@ setup_systemd_services() {
   service_user="$(resolve_service_user)"
   service_group="$(resolve_service_group "$service_user")"
 
-  install_systemd_service "$http_service" "$APP_NAME HTTP service" "$SCRIPT_DIR/start_http.sh" "$service_user" "$service_group"
-  install_systemd_service "$https_service" "$APP_NAME HTTPS service" "$SCRIPT_DIR/start_https.sh" "$service_user" "$service_group"
+  install_systemd_service "$http_service" "$APP_NAME HTTP service" "$SCRIPT_DIR/start_http.sh" "$service_user" "$service_group" "$(if [[ "$http_port" =~ ^[0-9]+$ ]] && (( http_port < 1024 )); then echo yes; else echo no; fi)"
+  install_systemd_service "$https_service" "$APP_NAME HTTPS service" "$SCRIPT_DIR/start_https.sh" "$service_user" "$service_group" "$(if [[ "$https_port" =~ ^[0-9]+$ ]] && (( https_port < 1024 )); then echo yes; else echo no; fi)"
   sudo systemctl daemon-reload
   echo "Installed systemd unit files for $APP_NAME."
 
@@ -999,11 +1061,313 @@ setup_systemd_services() {
   esac
 }
 
-ensure_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "python3 is required but was not found in PATH." >&2
+repair_local_permissions() {
+  chmod 600 "$RUNTIME_ENV_FILE" 2>/dev/null || true
+  chmod 600 "$FLASK_SECRET_KEY_FILE" 2>/dev/null || true
+  chmod 600 "$SCRIPT_DIR/profiles.json" "$SCRIPT_DIR/object_storage.json" 2>/dev/null || true
+  chmod 600 "$SCRIPT_DIR"/runtime/updates/* 2>/dev/null || true
+  chmod 700 "$SCRIPT_DIR/profile_ssh_keys" "$SCRIPT_DIR/tls" "$SCRIPT_DIR/.data" "$SCRIPT_DIR/.embedded" 2>/dev/null || true
+  find "$SCRIPT_DIR/profile_ssh_keys" -type d -exec chmod 700 {} \; 2>/dev/null || true
+  find "$SCRIPT_DIR/profile_ssh_keys" -type f -exec chmod 600 {} \; 2>/dev/null || true
+  find "$SCRIPT_DIR/tls" -type f \( -name '*.key' -o -name '*.pem' -o -name '*.p12' -o -name '*.pfx' -o -name '*.jks' -o -name '*.keystore' \) -exec chmod 600 {} \; 2>/dev/null || true
+}
+
+install_mysql_server_binaries() {
+  local os_family="$1"
+  if command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1; then
+    return 0
+  fi
+  if privileged_setup_skipped; then
+    echo "MySQL Server binaries are required for local-admin bootstrap. Install mysqld/mysql manually or rerun without SKIP_PRIVILEGED_SETUP." >&2
     return 1
   fi
+  case "$os_family" in
+    ol8)
+      run_as_root dnf -y module disable mysql || true
+      run_as_root dnf install -y mysql-community-server mysql-community-client || run_as_root dnf install -y mysql-server mysql
+      ;;
+    ol9)
+      run_as_root dnf install -y mysql-community-server mysql-community-client || run_as_root dnf install -y mysql-server mysql
+      ;;
+    ubuntu)
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client || run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client
+      ;;
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        brew install mysql || true
+      fi
+      ;;
+  esac
+  command -v mysqld >/dev/null 2>&1 && command -v mysql >/dev/null 2>&1
+}
+
+write_local_mysql_config() {
+  local basedir="$1"
+  mkdir -p "$SCRIPT_DIR/etc" "$LOCAL_MYSQL_RUN_DIR" "$LOCAL_MYSQL_LOG_DIR" "$LOCAL_MYSQL_TMP_DIR"
+  chmod 700 "$SCRIPT_DIR/.data" "$LOCAL_MYSQL_RUN_DIR" "$LOCAL_MYSQL_LOG_DIR" "$LOCAL_MYSQL_TMP_DIR" 2>/dev/null || true
+  cat >"$LOCAL_MYSQL_CNF" <<EOF
+[mysqld]
+basedir=$basedir
+datadir=$LOCAL_MYSQL_DATADIR
+socket=$LOCAL_MYSQL_SOCKET
+pid-file=$LOCAL_MYSQL_RUN_DIR/mysqld.pid
+log-error=$LOCAL_MYSQL_LOG_DIR/mysqld.err
+tmpdir=$LOCAL_MYSQL_TMP_DIR
+skip-networking
+mysqlx=0
+EOF
+  chmod 600 "$LOCAL_MYSQL_CNF"
+}
+
+local_mysql_basedir() {
+  local mysqld_bin
+  mysqld_bin="$(command -v mysqld || true)"
+  if [[ -z "$mysqld_bin" ]]; then
+    return 1
+  fi
+  case "$mysqld_bin" in
+    /usr/sbin/mysqld|/usr/bin/mysqld) echo "/usr" ;;
+    */bin/mysqld) dirname "$(dirname "$mysqld_bin")" ;;
+    */libexec/mysqld) dirname "$(dirname "$mysqld_bin")" ;;
+    *) dirname "$(dirname "$mysqld_bin")" ;;
+  esac
+}
+
+wait_for_local_mysql_socket() {
+  local i
+  for i in $(seq 1 30); do
+    if [[ -S "$LOCAL_MYSQL_SOCKET" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for local MySQL socket $LOCAL_MYSQL_SOCKET." >&2
+  return 1
+}
+
+start_local_mysql() {
+  if [[ -f "$LOCAL_MYSQL_RUN_DIR/mysqld.pid" ]] && kill -0 "$(cat "$LOCAL_MYSQL_RUN_DIR/mysqld.pid")" 2>/dev/null; then
+    return 0
+  fi
+  mysqld --defaults-file="$LOCAL_MYSQL_CNF" --daemonize
+  wait_for_local_mysql_socket
+}
+
+extract_temporary_mysql_password() {
+  sed -n "s/.*temporary password.*root@localhost: //p" "$LOCAL_MYSQL_LOG_DIR/mysqld.err" | tail -n 1
+}
+
+sql_quote() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+initialize_local_mysql_if_needed() {
+  local os_family="$1"
+  local basedir
+  local temp_password
+  local defaults_file
+  local escaped_user
+  local escaped_password
+
+  install_mysql_server_binaries "$os_family" || return 1
+  basedir="$(local_mysql_basedir)" || return 1
+  write_local_mysql_config "$basedir"
+
+  if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
+    start_local_mysql
+    return 0
+  fi
+
+  rm -rf "$LOCAL_MYSQL_DATADIR"
+  mysqld --defaults-file="$LOCAL_MYSQL_CNF" --initialize
+  temp_password="$(extract_temporary_mysql_password)"
+  if [[ -z "$temp_password" ]]; then
+    echo "Unable to read the temporary MySQL root password from $LOCAL_MYSQL_LOG_DIR/mysqld.err." >&2
+    return 1
+  fi
+
+  start_local_mysql
+  defaults_file="$LOCAL_MYSQL_BOOTSTRAP_DEFAULTS"
+  cat >"$defaults_file" <<EOF
+[client]
+user=root
+password=$temp_password
+socket=$LOCAL_MYSQL_SOCKET
+EOF
+  chmod 600 "$defaults_file"
+  escaped_user="$(sql_quote "$LOCAL_MYSQL_ADMIN_USER")"
+  escaped_password="$(sql_quote "$LOCAL_MYSQL_ADMIN_PASSWORD")"
+  mysql --defaults-extra-file="$defaults_file" --connect-expired-password <<SQL
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${escaped_password}';
+RENAME USER 'root'@'localhost' TO '${escaped_user}'@'localhost';
+GRANT ALL PRIVILEGES ON *.* TO '${escaped_user}'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+  rm -f "$defaults_file"
+}
+
+ensure_local_mysql_profile() {
+  local os_family="$1"
+  local profile_script="$SCRIPT_DIR/secured_connection_profile_setup.sh"
+  local socket_path="$LOCAL_MYSQL_SOCKET"
+
+  case "$(to_lower "$MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY")" in
+    1|true|yes|on)
+      echo "Skipping local-admin-profile bootstrap for old-version code-refresh compatibility. Rerun Auto-Update from the refreshed page with a temporary local admin password."
+      return 0
+      ;;
+  esac
+
+  if [[ ! -x "$profile_script" ]]; then
+    chmod +x "$profile_script" 2>/dev/null || true
+  fi
+
+  if [[ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]]; then
+    if ! "$VENV_DIR/bin/python" - "$SCRIPT_DIR/profiles.json" "$LOCAL_MYSQL_PROFILE_NAME" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+profile_name = sys.argv[2]
+if not path.exists():
+    raise SystemExit(1)
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except json.JSONDecodeError:
+    raise SystemExit(1)
+for row in payload.get("profiles", []):
+    if row.get("name") == profile_name and row.get("mode") == "socket" and row.get("socket"):
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      echo "local-admin-profile is missing or not socket-only. Set LOCAL_MYSQL_ADMIN_PASSWORD and rerun setup.sh, or use the refreshed Auto-Update page bootstrap fields." >&2
+      return 0
+    fi
+  fi
+
+  if [[ ! -f "$SCRIPT_DIR/profiles.json" && -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]]; then
+    echo "local-admin-profile is not configured. Set LOCAL_MYSQL_ADMIN_PASSWORD and rerun setup.sh to provision it." >&2
+    return 0
+  fi
+
+  if [[ -n "$LOCAL_MYSQL_ADMIN_PASSWORD" ]]; then
+    initialize_local_mysql_if_needed "$os_family"
+  fi
+
+  local profile_args=(
+    --profile-store "$SCRIPT_DIR/profiles.json" \
+    --ssh-key-dir "$SCRIPT_DIR/profile_ssh_keys" \
+    --profile-name "$LOCAL_MYSQL_PROFILE_NAME" \
+    --socket "$socket_path" \
+    --admin-user "$LOCAL_MYSQL_ADMIN_USER" \
+    --database "$LOCAL_MYSQL_DATABASE"
+  )
+  if [[ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]]; then
+    profile_args+=(--no-force-password-change)
+  fi
+
+  PYTHON_BIN="$VENV_DIR/bin/python" "$profile_script" "${profile_args[@]}"
+}
+
+python_version_at_least() {
+  local python_bin="$1"
+  local min_version="$2"
+  "$python_bin" - "$min_version" <<'PY'
+import sys
+want = tuple(int(part) for part in sys.argv[1].split(".")[:2])
+have = sys.version_info[:2]
+raise SystemExit(0 if have >= want else 1)
+PY
+}
+
+install_python_if_possible() {
+  local os_family="$1"
+  if privileged_setup_skipped; then
+    echo "Python $MYSQL_SHELL_WEB_PYTHON_MIN_VERSION+ is missing and SKIP_PRIVILEGED_SETUP is set. Install it manually." >&2
+    return 1
+  fi
+  case "$os_family" in
+    ol8|ol9)
+      sudo dnf install -y python3.12 python3.12-pip python3.12-devel || true
+      ;;
+    ubuntu)
+      sudo apt-get update
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv python3.12-dev || true
+      ;;
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        brew install python@3.12 || true
+      fi
+      ;;
+  esac
+}
+
+select_python_bin() {
+  local os_family="$1"
+  local candidate
+  if [[ -n "$MYSQL_SHELL_WEB_PYTHON_BIN" ]]; then
+    if [[ -x "$MYSQL_SHELL_WEB_PYTHON_BIN" ]] && python_version_at_least "$MYSQL_SHELL_WEB_PYTHON_BIN" "$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"; then
+      printf '%s\n' "$MYSQL_SHELL_WEB_PYTHON_BIN"
+      return 0
+    fi
+    echo "MYSQL_SHELL_WEB_PYTHON_BIN does not satisfy Python >= $MYSQL_SHELL_WEB_PYTHON_MIN_VERSION: $MYSQL_SHELL_WEB_PYTHON_BIN" >&2
+    return 1
+  fi
+  for candidate in python3.13 python3.12 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      candidate="$(command -v "$candidate")"
+      if python_version_at_least "$candidate" "$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+  install_python_if_possible "$os_family"
+  for candidate in python3.13 python3.12 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      candidate="$(command -v "$candidate")"
+      if python_version_at_least "$candidate" "$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+  echo "Python $MYSQL_SHELL_WEB_PYTHON_MIN_VERSION or newer is required." >&2
+  return 1
+}
+
+create_virtualenv() {
+  local python_bin="$1"
+  if "$python_bin" -m venv "$VENV_DIR"; then
+    return 0
+  fi
+  echo "Virtualenv creation failed. Attempting to install matching venv support and retry." >&2
+  if ! privileged_setup_skipped && command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12-venv || true
+  fi
+  "$python_bin" -m venv "$VENV_DIR"
+}
+
+run_dependency_audit() {
+  case "$(to_lower "$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT")" in
+    off|0|false|no) return 0 ;;
+  esac
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip-audit >/dev/null 2>&1 || {
+    echo "pip-audit could not be installed; continuing." >&2
+    return 0
+  }
+  mkdir -p "$SCRIPT_DIR/.cache/pip-audit"
+  if "$VENV_DIR/bin/python" -m pip_audit --cache-dir "$SCRIPT_DIR/.cache/pip-audit" -r "$SCRIPT_DIR/requirements.txt"; then
+    return 0
+  fi
+  if [[ "$(to_lower "$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT")" =~ ^(1|true|yes|on)$ ]]; then
+    return 1
+  fi
+  echo "Dependency audit reported issues; continuing because strict mode is disabled." >&2
 }
 
 mark_local_state_files() {
@@ -1030,12 +1394,11 @@ main() {
   local prompted_ports
   local tls_assets
   local mysqlsh_binary
+  local selected_python
 
   load_existing_runtime_env
   parse_args "$@"
   os_family="$OS_FAMILY_INPUT"
-
-  ensure_python
 
   if [[ -z "$os_family" ]]; then
     os_family="$(detect_os_family)"
@@ -1099,14 +1462,20 @@ main() {
   ssl_cert_file="$(printf '%s\n' "$tls_assets" | sed -n '1p')"
   ssl_key_file="$(printf '%s\n' "$tls_assets" | sed -n '2p')"
 
-  python3 -m venv "$VENV_DIR"
+  selected_python="$(select_python_bin "$os_family")"
+  MYSQL_SHELL_WEB_PYTHON_BIN="$selected_python"
+  create_virtualenv "$selected_python"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+  ensure_flask_secret_key
+  run_dependency_audit
 
   mysqlsh_binary="$(run_mysqlsh_installer "$os_family")"
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$mysqlsh_binary" "$os_family" "$deploy_mode"
+  ensure_local_mysql_profile "$os_family"
+  repair_local_permissions
   mark_local_state_files
-  setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file"
+  setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 
   if privileged_setup_skipped; then
     echo "Skipping firewall changes because SKIP_PRIVILEGED_SETUP is set."
@@ -1130,6 +1499,7 @@ main() {
 
   echo "Setup completed."
   echo "Virtual environment: $VENV_DIR"
+  echo "Python runtime: $selected_python"
   echo "Saved runtime defaults: $RUNTIME_ENV_FILE"
   echo "Default host: $host_value"
   echo "Default HTTP port: $http_port"

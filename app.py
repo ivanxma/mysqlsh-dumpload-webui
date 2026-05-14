@@ -1,10 +1,12 @@
 import json
 import os
 import re
+import secrets
 import ssl
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -17,6 +19,7 @@ from modules.config import (
     APP_VERSION_FILE,
     APP_TITLE,
     MYSQL_SHELL_WEB_VERSION_URL,
+    LOCAL_ADMIN_PROFILE_NAME,
     NAV_GROUPS,
     PAR_ACCESS_OPTIONS,
     PAR_TARGET_OPTIONS,
@@ -94,9 +97,16 @@ from modules.oci_configuration import (
 from modules.profiles import (
     ensure_profile_store,
     get_profile_by_name,
+    harden_profile_store_permissions,
+    is_local_admin_profile,
+    local_admin_profile_ready,
     load_profiles,
     normalize_profile,
+    profile_allows_management,
+    public_login_profiles,
     save_profiles,
+    set_profile_force_password_change,
+    store_uploaded_ssh_key,
     validate_profile,
 )
 from modules.shell_options import (
@@ -131,8 +141,23 @@ from modules.session_utils import (
 )
 
 
+def _load_flask_secret_key():
+    configured = os.environ.get("FLASK_SECRET_KEY", "").strip()
+    if configured:
+        return configured
+    secret_file = os.environ.get("FLASK_SECRET_KEY_FILE", "").strip()
+    if secret_file:
+        try:
+            secret_value = open(secret_file, "r", encoding="utf-8").read().strip()
+            if secret_value:
+                return secret_value
+        except OSError:
+            pass
+    return secrets.token_hex(32)
+
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "mysql-shell-web-change-me")
+app.config["SECRET_KEY"] = _load_flask_secret_key()
 app.config["SESSION_COOKIE_NAME"] = MYSQL_SHELL_WEB_SESSION_COOKIE_NAME
 app.config["SESSION_COOKIE_PATH"] = MYSQL_SHELL_WEB_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -1129,44 +1154,72 @@ def _github_raw_version_url_from_remote(remote_url, branch_name):
     owner_repo = owner_repo.removesuffix(".git").strip("/")
     if owner_repo.count("/") < 1:
         return ""
-    return f"https://raw.githubusercontent.com/{owner_repo}/{branch}/appver.json"
+    return (
+        "https://api.github.com/repos/"
+        f"{owner_repo}/contents/appver.json?ref={urllib.parse.quote(branch, safe='')}"
+    )
+
+
+def _normalize_github_version_url(version_url):
+    url = str(version_url or "").strip()
+    if not url:
+        return ""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc == "raw.githubusercontent.com":
+        parts = [part for part in parsed.path.strip("/").split("/") if part]
+        if len(parts) >= 4 and parts[-1] == "appver.json":
+            owner, repo, branch = parts[0], parts[1], "/".join(parts[2:-1])
+            return (
+                "https://api.github.com/repos/"
+                f"{owner}/{repo}/contents/appver.json?ref={urllib.parse.quote(branch, safe='')}"
+            )
+    if parsed.netloc == "github.com" and "/raw/" in parsed.path and parsed.path.endswith("/appver.json"):
+        before_raw, after_raw = parsed.path.strip("/").split("/raw/", 1)
+        owner_repo = before_raw.strip("/")
+        branch = after_raw.removesuffix("/appver.json").strip("/")
+        if owner_repo.count("/") == 1 and branch:
+            return (
+                "https://api.github.com/repos/"
+                f"{owner_repo}/contents/appver.json?ref={urllib.parse.quote(branch, safe='')}"
+            )
+    return url
 
 
 def _resolve_version_url():
     configured_url = str(MYSQL_SHELL_WEB_VERSION_URL or "").strip()
     if configured_url:
-        return configured_url
+        return _normalize_github_version_url(configured_url)
     return _github_raw_version_url_from_remote(_git_remote_origin_url(), _current_git_branch())
 
 
 def _fetch_repo_version(version_url):
     if not version_url:
-        return "", "Set MYSQL_SHELL_WEB_VERSION_URL when the repository raw version URL cannot be inferred."
+        return "", "Set MYSQL_SHELL_WEB_VERSION_URL when the repository version URL cannot be inferred."
     request_object = urllib.request.Request(
         version_url,
-        headers={"Accept": "application/json", "User-Agent": "mysql-shell-web-version-check"},
+        headers={
+            "Accept": "application/vnd.github.raw+json, application/json",
+            "User-Agent": "mysql-shell-web-version-check",
+        },
     )
-    contexts = [None]
+    ca_bundle_override = os.environ.get("MYSQL_SHELL_WEB_VERSION_CA_BUNDLE", "").strip()
     try:
-        import certifi
+        if ca_bundle_override:
+            context = ssl.create_default_context(cafile=ca_bundle_override)
+        else:
+            import certifi
 
-        contexts.append(ssl.create_default_context(cafile=certifi.where()))
-    except Exception:
-        pass
-
-    last_error = None
-    payload = None
-    for context in contexts:
-        try:
-            with urllib.request.urlopen(request_object, timeout=2, context=context) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            break
-        except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-            last_error = error
-            continue
-
-    if payload is None:
-        return "", str(last_error or "Unable to retrieve repository version.")
+            context = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(request_object, timeout=2, context=context) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except ssl.SSLError as error:
+        return "", (
+            "TLS verification failed while retrieving the repository version. "
+            "Set MYSQL_SHELL_WEB_VERSION_CA_BUNDLE to a trusted CA bundle if this host uses a private trust store. "
+            f"Details: {error}"
+        )
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        return "", str(error or "Unable to retrieve repository version.")
     if not isinstance(payload, dict):
         return "", "Repository version payload is not a JSON object."
     version = str(payload.get("version", "")).strip()
@@ -1289,7 +1342,7 @@ def _update_status_request_authorized(status=None):
         return True
     status_payload = status or _read_json_file(UPDATE_STATUS_FILE)
     expected_token = str(status_payload.get("poll_token", "")).strip()
-    supplied_token = str(session.get(UPDATE_POLL_TOKEN_SESSION_KEY, "")).strip()
+    supplied_token = str(request.headers.get("X-MySQL-Shell-Web-Update-Poll-Token", "")).strip()
     return bool(expected_token and supplied_token and expected_token == supplied_token)
 
 
@@ -1299,7 +1352,34 @@ def _public_update_status(status):
     return payload
 
 
-def _start_update_worker():
+def _current_user_is_local_admin():
+    return is_logged_in() and profile_allows_management(get_current_profile_name())
+
+
+def local_admin_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped_view(*args, **kwargs):
+        if not _current_user_is_local_admin():
+            flash("Log in with local-admin-profile to manage application profiles.", "error")
+            return redirect(url_for("overview_page"))
+        return view(*args, **kwargs)
+
+    return wrapped_view
+
+
+def _profile_public_login_payload(profile):
+    return {
+        "name": profile.get("name", ""),
+        "default_username": profile.get("default_username", ""),
+    }
+
+
+def _local_admin_bootstrap_required():
+    return not local_admin_profile_ready()
+
+
+def _start_update_worker(*, bootstrap_payload=None, compatibility_code_refresh=False):
     current_status = _normalize_update_status()
     if not current_status.get("can_start"):
         raise RuntimeError("An update is already running.")
@@ -1328,6 +1408,15 @@ def _start_update_worker():
     _write_update_status(status)
 
     env = os.environ.copy()
+    bootstrap_payload = bootstrap_payload or {}
+    for key in ("LOCAL_MYSQL_PROFILE_NAME", "LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_SOCKET", "LOCAL_MYSQL_DATABASE"):
+        value = str(bootstrap_payload.get(key, "")).strip()
+        if value:
+            env[key] = value
+    if bootstrap_payload.get("LOCAL_MYSQL_ADMIN_PASSWORD"):
+        env["LOCAL_MYSQL_ADMIN_PASSWORD"] = bootstrap_payload["LOCAL_MYSQL_ADMIN_PASSWORD"]
+    if compatibility_code_refresh:
+        env["MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY"] = "1"
     pythonpath_entries = [str(ROOT_DIR)]
     existing_pythonpath = str(env.get("PYTHONPATH", "")).strip()
     if existing_pythonpath:
@@ -1394,18 +1483,27 @@ def render_dashboard(template_name, **context):
     object_storage_config = context.pop("object_storage_config", None) or load_object_storage_config()
     par_entries = get_par_entries_for_bucket(object_storage_config)
     version_check = context.pop("version_check", None) or _current_version_check()
+    nav_groups = []
+    for group in NAV_GROUPS:
+        items = []
+        for item in group["items"]:
+            if item["endpoint"] == "profile_page" and not _current_user_is_local_admin():
+                continue
+            items.append(item)
+        if items:
+            nav_groups.append({"label": group["label"], "items": items})
     return render_template(
         template_name,
         app_title=APP_TITLE,
         logged_in=is_logged_in(),
         current_user=get_current_username(),
         current_profile_name=get_current_profile_name(),
-        connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
+        connection_summary="Socket" if profile and profile.get("mode") == "socket" else (f"{profile['host'] or '-'}:{profile['port']}" if profile else "-"),
         app_version=version_check.get("app_version") or _app_version_payload()["version"],
         repo_version=version_check.get("repo_version") or "",
         update_available=bool(version_check.get("update_available")),
         version_check=version_check,
-        nav_groups=NAV_GROUPS,
+        nav_groups=nav_groups,
         current_endpoint=request.endpoint or "",
         object_storage_config=object_storage_config,
         stored_par_count=len(par_entries),
@@ -1417,23 +1515,13 @@ def render_dashboard(template_name, **context):
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        profile = normalize_profile(
-            {
-                "name": request.form.get("profile_name", ""),
-                "host": request.form.get("host", ""),
-                "port": request.form.get("port", ""),
-                "database": request.form.get("database", ""),
-                "ssh_enabled": request.form.get("ssh_enabled", ""),
-                "ssh_host": request.form.get("ssh_host", ""),
-                "ssh_port": request.form.get("ssh_port", ""),
-                "ssh_user": request.form.get("ssh_user", ""),
-                "ssh_key_path": request.form.get("ssh_key_path", ""),
-                "ssh_config_file": request.form.get("ssh_config_file", ""),
-            }
-        )
+        profile_name = str(request.form.get("profile_name", "")).strip()
+        profile = get_profile_by_name(profile_name)
         username = str(request.form.get("username", "")).strip()
         password = request.form.get("password", "")
-        errors = validate_profile(profile, require_name=False)
+        errors = []
+        if not profile:
+            errors.append("Choose a saved profile.")
         if not username:
             errors.append("MySQL username is required.")
 
@@ -1446,6 +1534,9 @@ def login():
                 set_login_state(profile, username, password)
                 test_mysql_connection(profile, {"username": username, "password": password})
                 flash("Connected to MySQL.", "success")
+                if is_local_admin_profile(profile) and profile.get("force_password_change"):
+                    flash("Change the local admin password before continuing.", "error")
+                    return redirect(url_for("change_local_admin_password"))
                 version_check = _check_repository_version()
                 if version_check.get("update_available"):
                     flash(
@@ -1466,8 +1557,8 @@ def login():
         app_title=APP_TITLE,
         page_title="Login",
         logged_in=False,
-        profiles=load_profiles(),
-        selected_profile=selected_profile,
+        profiles=public_login_profiles(),
+        selected_profile=_profile_public_login_payload(selected_profile),
         selected_profile_name=selected_name or selected_profile.get("name", ""),
     )
 
@@ -1477,6 +1568,50 @@ def logout():
     clear_login_state(keep_profile=False)
     flash("Logged out.", "success")
     return redirect(url_for("login"))
+
+
+@app.route("/admin/local-admin/change-password", methods=["GET", "POST"])
+@login_required
+def change_local_admin_password():
+    profile = get_session_profile()
+    if not is_local_admin_profile(profile):
+        flash("Password changes through this page are only available for local-admin-profile.", "error")
+        return redirect(url_for("overview_page"))
+
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if not new_password:
+            flash("New password is required.", "error")
+        elif new_password != confirm_password:
+            flash("Password confirmation does not match.", "error")
+        else:
+            try:
+                credentials = get_session_credentials()
+                with pymysql.connect(
+                    unix_socket=profile["socket"],
+                    user=credentials["username"],
+                    password=credentials["password"],
+                    database=profile.get("database") or "mysql",
+                    connect_timeout=5,
+                    autocommit=True,
+                ) as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "ALTER USER CURRENT_USER() IDENTIFIED BY %s",
+                            (new_password,),
+                        )
+                set_profile_force_password_change(profile["name"], False)
+                clear_login_state(keep_profile=False)
+                flash("Local admin password changed. Log in again with the new password.", "success")
+                return redirect(url_for("login", profile=LOCAL_ADMIN_PROFILE_NAME))
+            except Exception as error:  # pragma: no cover - depends on local MySQL runtime
+                flash(f"Unable to change local admin password: {error}", "error")
+
+    return render_dashboard(
+        "change_local_admin_password.html",
+        page_title="Change Local Admin Password",
+    )
 
 
 @app.route("/dashboard")
@@ -1607,6 +1742,7 @@ def db_admin_apply_primary_key_fix():
 
 
 @app.route("/admin/profile", methods=["GET", "POST"])
+@local_admin_required
 def profile_page():
     profiles = load_profiles()
     selected_name = str(request.values.get("selected_profile", "")).strip()
@@ -1615,6 +1751,16 @@ def profile_page():
     if request.method == "POST":
         action = str(request.form.get("profile_action", "")).strip()
         profile_payload = normalize_profile(request.form)
+        key_upload = request.files.get("ssh_private_key")
+        if key_upload and key_upload.filename:
+            try:
+                store_uploaded_ssh_key(profile_payload["name"], key_upload)
+                profile_payload["ssh_key_uploaded"] = True
+                profile_payload["ssh_key_id"] = profile_payload["name"]
+                profile_payload["ssh_key_path"] = ""
+            except Exception as error:
+                flash(str(error), "error")
+                action = ""
         errors = validate_profile(profile_payload)
 
         if action == "save":
@@ -1713,12 +1859,17 @@ def object_storage_settings_page():
 @app.route("/admin/update")
 @login_required
 def update_mysql_shell_web_page():
+    raw_status = _normalize_update_status()
     return render_dashboard(
         "update_mysql_shell_web.html",
         page_title="Update MySQL Shell Web",
-        update_status=_public_update_status(_normalize_update_status()),
+        update_status=_public_update_status(raw_status),
+        update_poll_token=str(raw_status.get("poll_token") or session.get(UPDATE_POLL_TOKEN_SESSION_KEY, "")).strip(),
         version_check=_current_version_check(),
         status_url=url_for("update_mysql_shell_web_status"),
+        local_admin_bootstrap_required=_local_admin_bootstrap_required(),
+        current_user_is_local_admin=_current_user_is_local_admin(),
+        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
     )
 
 
@@ -1743,7 +1894,30 @@ def update_mysql_shell_web_retrieve_version():
 @login_required
 def update_mysql_shell_web_start():
     try:
-        _start_update_worker()
+        bootstrap_required = _local_admin_bootstrap_required()
+        bootstrap_field_names = {"local_admin_username", "local_admin_password", "local_admin_password_confirm"}
+        old_form_compatibility = bootstrap_required and not any(name in request.form for name in bootstrap_field_names)
+        bootstrap_payload = {}
+        if bootstrap_required and not old_form_compatibility:
+            local_admin_username = str(request.form.get("local_admin_username", "localadmin")).strip() or "localadmin"
+            local_admin_password = request.form.get("local_admin_password", "")
+            local_admin_password_confirm = request.form.get("local_admin_password_confirm", "")
+            if not local_admin_password:
+                raise RuntimeError("Temporary local admin password is required to repair local-admin-profile.")
+            if local_admin_password != local_admin_password_confirm:
+                raise RuntimeError("Temporary local admin password confirmation does not match.")
+            bootstrap_payload = {
+                "LOCAL_MYSQL_PROFILE_NAME": LOCAL_ADMIN_PROFILE_NAME,
+                "LOCAL_MYSQL_ADMIN_USER": local_admin_username,
+                "LOCAL_MYSQL_ADMIN_PASSWORD": local_admin_password,
+            }
+        elif not bootstrap_required and not _current_user_is_local_admin():
+            raise RuntimeError("Log in with local-admin-profile to start application updates.")
+
+        _start_update_worker(
+            bootstrap_payload=bootstrap_payload,
+            compatibility_code_refresh=old_form_compatibility,
+        )
         flash("Update started.", "success")
     except Exception as error:
         flash(str(error), "error")
@@ -2662,6 +2836,7 @@ def handle_mysql_interface_error(error):
 
 def _initialize_app_files():
     ensure_profile_store()
+    harden_profile_store_permissions()
     ensure_option_profile_store()
     ensure_object_storage_store()
     ensure_par_store()

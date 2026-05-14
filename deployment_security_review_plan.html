@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MySQL Shell Web Deployment Security Review Plan</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #596675;
+        --border: #d7dde5;
+        --accent: #0f766e;
+        --critical: #b42318;
+        --high: #b54708;
+        --medium: #175cd3;
+        --low: #067647;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      header, section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 22px;
+        margin-bottom: 18px;
+      }
+      h1, h2, h3 {
+        margin: 0 0 10px;
+        line-height: 1.2;
+      }
+      h1 { font-size: 28px; }
+      h2 { font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+      h3 { font-size: 16px; margin-top: 18px; }
+      p { margin: 8px 0; }
+      .meta, .note { color: var(--muted); }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .metric {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+        background: #fbfcfd;
+      }
+      .metric strong {
+        display: block;
+        font-size: 22px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0 4px;
+      }
+      th, td {
+        border: 1px solid var(--border);
+        padding: 10px;
+        vertical-align: top;
+        text-align: left;
+      }
+      th { background: #eef2f6; }
+      code {
+        background: #eef2f6;
+        border: 1px solid #dce3eb;
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      ul { margin: 8px 0 0 20px; padding: 0; }
+      li { margin: 4px 0; }
+      .badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .critical { background: var(--critical); }
+      .high { background: var(--high); }
+      .medium { background: var(--medium); }
+      .low { background: var(--low); }
+      .ok { color: var(--low); font-weight: 700; }
+      .gap { color: var(--high); font-weight: 700; }
+      .blocker { color: var(--critical); font-weight: 700; }
+      .phase {
+        border-left: 4px solid var(--accent);
+        padding-left: 12px;
+        margin-top: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="meta">MySQL Shell Web</p>
+        <h1>Deployment Security Review and Alignment Plan</h1>
+        <p>
+          Review scope: secured connection profile setup, local-admin login flow, platform deployment for
+          <code>ol8</code>, <code>ol9</code>, <code>ubuntu</code>, and <code>macos</code>, auto-update behavior,
+          dependency vulnerability posture, and version history.
+        </p>
+        <p class="meta">Created: 2026-05-14. Basis: current working tree and the local <code>myapp</code> deployment references.</p>
+      </header>
+
+      <section>
+        <h2>Executive Summary</h2>
+        <div class="grid">
+          <div class="metric"><strong>1</strong><span class="gap">Platform validation gap</span><br>App-managed local MySQL bootstrap is implemented and now needs fresh-host validation.</div>
+          <div class="metric"><strong>3</strong><span class="gap">High priority fixes</span><br>Dependency CVE, SSH uploaded-key resolution, platform repository setup.</div>
+          <div class="metric"><strong>4</strong><span class="gap">Medium hardening items</span><br>Secret key generation, service capabilities, path validation, update token tightening.</div>
+          <div class="metric"><strong>5</strong><span class="ok">Controls already present</span><br>Login secrecy, local-admin route gate, profile example, git-ignore, version check TLS.</div>
+        </div>
+        <p>
+          The hardening now brings the application closer to the <code>myapp</code> profile and update model.
+          The main remaining work is fresh-host validation across OL8, OL9, Ubuntu, macOS, and OCI Compute,
+          plus continued replacement of temporary dependency mitigations with fixed upstream releases.
+        </p>
+      </section>
+
+      <section>
+        <h2>Review Findings</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Severity</th>
+              <th>Finding</th>
+              <th>Evidence</th>
+              <th>Required Plan</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>SEC-01</td>
+              <td><span class="badge critical">Critical</span></td>
+              <td>Local-admin MySQL bootstrap requires fresh-host validation.</td>
+              <td><code>setup.sh</code> now installs/uses MySQL Server binaries, writes socket-only <code>etc/my.cnf</code>, initializes <code>.data/mysql</code>, starts <code>mysqld</code>, and renames <code>root@localhost</code> to the local admin account.</td>
+              <td>Validate this flow on OL8, OL9, Ubuntu, macOS, and OCI Compute images before treating it as release-complete.</td>
+            </tr>
+            <tr>
+              <td>SEC-02</td>
+              <td><span class="badge high">High</span></td>
+              <td>Uploaded SSH key profiles are not fully wired to runtime connections.</td>
+              <td><code>modules/profiles.py</code> stores uploaded keys under <code>profile_ssh_keys/</code>, but <code>modules/mysql_connection.py</code> still requires <code>profile["ssh_key_path"]</code> for SSH tunnels.</td>
+              <td>Resolve uploaded keys server-side from <code>ssh_key_id</code>, never render the path, and keep legacy explicit paths disabled unless an operator enables them.</td>
+            </tr>
+            <tr>
+              <td>SEC-03</td>
+              <td><span class="badge high">High</span></td>
+              <td>Dependency audit found a Paramiko vulnerability.</td>
+              <td><code>.venv/bin/python -m pip_audit -r requirements.txt</code> initially reported Paramiko affected by <code>CVE-2026-44405</code>. PyPI 4.0.0 was still reported vulnerable.</td>
+              <td>Pin Paramiko to the upstream patched commit until a fixed PyPI release is available, and keep a strict audit gate for release builds.</td>
+            </tr>
+            <tr>
+              <td>SEC-04</td>
+              <td><span class="badge high">High</span></td>
+              <td>Platform MySQL Shell installers are too shallow for fresh hosts.</td>
+              <td><code>ol8</code> and <code>ol9</code> scripts call <code>dnf install mysql-shell</code> directly. <code>ubuntu</code> runs <code>apt-get install mysql-shell</code> without the current MySQL APT signing key/source setup.</td>
+              <td>Align per-OS installers with the <code>myapp</code> reference: OL8 module disablement, Oracle MySQL repo setup, Ubuntu stale-source cleanup, key installation, and innovation repo configuration.</td>
+            </tr>
+            <tr>
+              <td>SEC-05</td>
+              <td><span class="badge medium">Medium</span></td>
+              <td>Profile setup script accepts arbitrary output paths.</td>
+              <td><code>secured_connection_profile_setup.sh</code> validates profile names but does not reject path traversal or unexpected absolute output paths when called directly.</td>
+              <td>Add path validation or explicit <code>--allow-absolute-path</code> semantics. Keep normal setup invocation pinned to repo-local paths.</td>
+            </tr>
+            <tr>
+              <td>SEC-06</td>
+              <td><span class="badge medium">Medium</span></td>
+              <td>Flask secret key is not yet generated by setup.</td>
+              <td><code>app.py</code> still has a static fallback: <code>mysql-shell-web-change-me</code>.</td>
+              <td>Generate <code>.flask_secret_key</code> in setup, persist <code>FLASK_SECRET_KEY</code> through runtime env, and chmod the file <code>0600</code>.</td>
+            </tr>
+            <tr>
+              <td>SEC-07</td>
+              <td><span class="badge medium">Medium</span></td>
+              <td>Systemd capability grant is broader than necessary.</td>
+              <td>Generated services always set <code>AmbientCapabilities=CAP_NET_BIND_SERVICE</code>, even when configured ports are above <code>1024</code>.</td>
+              <td>Render the capability only when the selected HTTP or HTTPS port is privileged.</td>
+            </tr>
+            <tr>
+              <td>SEC-08</td>
+              <td><span class="badge medium">Medium</span></td>
+              <td>Update polling still has a signed-cookie fallback.</td>
+              <td>Status authorization supports the custom header but also accepts a token from Flask session.</td>
+              <td>Keep authenticated app-shell access, but require the custom header for restart-survival token reads.</td>
+            </tr>
+            <tr>
+              <td>SEC-09</td>
+              <td><span class="badge low">Low</span></td>
+              <td>Version history exists only as <code>appver.json</code> and README prose.</td>
+              <td><code>appver.json</code> contains <code>1.0.4</code> and <code>version_history.json</code> now records release history.</td>
+              <td>Keep version history updates as a release gate whenever <code>appver.json</code> changes.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Controls Already Aligned</h2>
+        <ul>
+          <li>Login page renders only profile names and default username metadata, not hostnames, sockets, SSH hosts, or key paths.</li>
+          <li>Profile management routes are gated by authenticated <code>local-admin-profile</code>.</li>
+          <li><code>profiles.json</code> is removed from source tracking and replaced with <code>profiles.example.json</code>.</li>
+          <li><code>.gitignore</code> excludes runtime state, uploaded keys, TLS keys, generated MySQL config, security reports, and token-like files.</li>
+          <li>Repository version checks use verified TLS and normalize GitHub raw URLs to the contents API.</li>
+          <li>Auto-update passes local-admin bootstrap password only through worker environment variables, not command-line arguments.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Platform Deployment Alignment</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>Current State</th>
+              <th>Alignment Work</th>
+              <th>Verification</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Oracle Linux 8</td>
+              <td>Lowercase folder exists. Installer calls <code>dnf install mysql-shell</code>.</td>
+              <td>Disable platform MySQL module, configure Oracle MySQL community/innovation repo, install MySQL Shell and MySQL Server binaries, stop package-created MySQL service, initialize app-local datadir.</td>
+              <td>Fresh OL8 host setup, <code>systemctl status mysql-shell-web-http.service</code>, socket-only MySQL check, firewall port check.</td>
+            </tr>
+            <tr>
+              <td>Oracle Linux 9</td>
+              <td>Lowercase folder exists. Installer calls <code>dnf install mysql-shell</code>.</td>
+              <td>Configure Oracle MySQL community/innovation repo, install server/client binaries, keep package datadir separate from app-local datadir.</td>
+              <td>Fresh OL9 host setup, no TCP listener for local admin MySQL, <code>mysqlx=0</code> confirmed.</td>
+            </tr>
+            <tr>
+              <td>Ubuntu</td>
+              <td>Lowercase folder exists. Installer calls <code>apt-get update</code> and <code>apt-get install mysql-shell</code>.</td>
+              <td>Remove stale MySQL source first, install current signing key, configure <code>mysql-innovation</code> and <code>mysql-tools</code>, add AppArmor allowance for repo-local <code>etc/my.cnf</code> and <code>.data/</code>.</td>
+              <td>Fresh Ubuntu setup, AppArmor profile reload, socket-only initialize and login test.</td>
+            </tr>
+            <tr>
+              <td>macOS</td>
+              <td>Homebrew MySQL Shell installer exists. Setup has no embedded MySQL Server bootstrap.</td>
+              <td>Add macOS-only embedded MySQL Server tarball/install flow under <code>.embedded/mysql-server</code>, initialize app-local datadir, run socket-only.</td>
+              <td>Local macOS setup with no Linux service assumptions, socket login, start scripts work on configured ports.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>OCI Compute Init-Script Work Plan</h2>
+        <p>
+          OCI Compute deployment must use platform-specific init-script wrappers and validation. Oracle Linux
+          images use the <code>opc</code> login user by default, while Ubuntu images use <code>ubuntu</code>.
+          The init script must pass local-admin bootstrap values through environment variables and must never
+          run with shell tracing that would print passwords into <code>/var/log/mysql-shell-web-init.log</code>.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Init-Script Fix</th>
+              <th>Validation</th>
+              <th>Expected Login Banner</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Oracle Linux 8</td>
+              <td>Use <code>OS_FAMILY=ol8</code>, <code>APP_USER=opc</code>, disable the platform MySQL module during setup, and pass <code>LOCAL_MYSQL_ADMIN_PASSWORD</code> only through environment.</td>
+              <td>SSH as <code>opc</code>, verify banner, check <code>/var/log/mysql-shell-web-init.log</code>, confirm <code>mysql-shell-web-http.service</code> or <code>mysql-shell-web-https.service</code>, and verify socket-only local MySQL.</td>
+              <td>Installing: <code>Please wait until installation to be completed.</code> Success: <code>MySQL Shell Web setup has been completed</code>.</td>
+            </tr>
+            <tr>
+              <td>Oracle Linux 9</td>
+              <td>Use <code>OS_FAMILY=ol9</code>, <code>APP_USER=opc</code>, configure Oracle MySQL packages, and keep package-created MySQL state separate from app-local <code>.data/mysql</code>.</td>
+              <td>SSH as <code>opc</code>, verify service status, firewall ingress, HTTP/HTTPS URL, and no TCP listener for the local-admin MySQL instance.</td>
+              <td>Same banner flow as OL8, scoped to the <code>opc</code> interactive shell.</td>
+            </tr>
+            <tr>
+              <td>Ubuntu</td>
+              <td>Use <code>OS_FAMILY=ubuntu</code>, <code>APP_USER=ubuntu</code>, recreate the MySQL APT source/key, and install AppArmor allowances for repo-local <code>etc/my.cnf</code> and <code>.data/</code>.</td>
+              <td>SSH as <code>ubuntu</code>, verify AppArmor reload, init log, systemd service, ingress, and socket-only local-admin login.</td>
+              <td>Same banner flow as OL, scoped to the <code>ubuntu</code> interactive shell.</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Required OCI Documentation Updates</h3>
+        <ul>
+          <li>Add separate README sections for Oracle Linux 8, Oracle Linux 9, and Ubuntu.</li>
+          <li>Keep each platform's user-data or init-script wrapper in its own fenced code block.</li>
+          <li>Document OCI Console placement: <code>Advanced options</code> &gt; <code>Management</code> &gt; <code>Initialization script</code>.</li>
+          <li>Document OCI CLI metadata/user-data usage only with placeholders for compartment, subnet, image, and SSH key values.</li>
+          <li>List ingress ports matching the selected deploy mode and listener ports.</li>
+          <li>Document first-login local-admin password rotation and recovery by rerunning setup with <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Remediation Plan</h2>
+        <div class="phase">
+          <h3>Phase 1: Complete Local-Admin MySQL Bootstrap</h3>
+          <ul>
+            <li>Add platform package installation for MySQL Server binaries in <code>setup.sh</code>.</li>
+            <li>Write app-local <code>etc/my.cnf</code> with <code>skip-networking</code>, <code>mysqlx=0</code>, and repo-local paths.</li>
+            <li>Initialize <code>.data/mysql</code> with <code>mysqld --initialize</code>.</li>
+            <li>Read the temporary root password from <code>.data/log/mysqld.err</code>.</li>
+            <li>Start the app-managed MySQL process only over the Unix socket.</li>
+            <li>Rename <code>root@localhost</code> to the supplied local admin user and set the temporary password.</li>
+            <li>Run <code>secured_connection_profile_setup.sh</code> after the database is initialized.</li>
+          </ul>
+        </div>
+
+        <div class="phase">
+          <h3>Phase 2: Harden Profile and SSH Key Runtime</h3>
+          <ul>
+            <li>Resolve uploaded SSH keys from <code>ssh_key_id</code> on the server side.</li>
+            <li>Remove browser-rendered and source-controlled key paths from the default workflow.</li>
+            <li>Add direct tests for path traversal rejection and atomic key replacement.</li>
+            <li>Tighten <code>secured_connection_profile_setup.sh</code> path validation.</li>
+          </ul>
+        </div>
+
+        <div class="phase">
+          <h3>Phase 3: Align Platform Installers</h3>
+          <ul>
+            <li>Update OL8 and OL9 installer scripts for Oracle MySQL repository setup and OL8 module disablement.</li>
+            <li>Update Ubuntu installer for current MySQL APT key/source recreation and stale source cleanup.</li>
+            <li>Add macOS embedded MySQL Server setup for local-only socket bootstrap.</li>
+            <li>Keep embedded Linux/macOS paths out of OCI Compute docs unless platform-specific.</li>
+          </ul>
+        </div>
+
+        <div class="phase">
+          <h3>Phase 4: Security and Update Hardening</h3>
+          <ul>
+            <li>Generate <code>.flask_secret_key</code> during setup and export <code>FLASK_SECRET_KEY</code>.</li>
+            <li>Render <code>AmbientCapabilities=CAP_NET_BIND_SERVICE</code> only when a selected service port is below <code>1024</code>.</li>
+            <li>Require the update poll token in <code>X-MySQL-Shell-Web-Update-Poll-Token</code> for unauthenticated restart-window reads.</li>
+            <li>Pin or mitigate Paramiko after validating the advisory fix path.</li>
+            <li>Run <code>pip-audit</code> in warn-only setup mode and strict release mode.</li>
+          </ul>
+        </div>
+
+        <div class="phase">
+          <h3>Phase 5: Version History and Release Gate</h3>
+          <ul>
+            <li>Add <code>VERSION_HISTORY.md</code> or <code>version_history.json</code>.</li>
+            <li>Record security, deployment, auto-update, and compatibility changes for every release.</li>
+            <li>Require version history update whenever <code>appver.json</code> changes.</li>
+            <li>Add release checks for syntax, login secrecy, route authorization, dependency audit, and platform dry-run validation.</li>
+          </ul>
+        </div>
+
+        <div class="phase">
+          <h3>Phase 6: OCI Compute Init-Script and Old-Updater Compatibility</h3>
+          <ul>
+            <li>Maintain one generic <code>oci_compute_init.sh</code> with platform defaults and no shell tracing.</li>
+            <li>Add README user-data examples for OL8, OL9, and Ubuntu as separate code blocks.</li>
+            <li>Require explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code> for first-boot local-admin bootstrap.</li>
+            <li>Pass local-admin password only through process environment, never command arguments or logs.</li>
+            <li>Keep old Auto-Update forms compatible by treating missing bootstrap fields as code-refresh-only runs.</li>
+            <li>After restart, require the refreshed Auto-Update page to collect temporary local-admin credentials and complete bootstrap.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h2>Version History Plan</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Notes to Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1.0.0</td>
+              <td>Historical baseline</td>
+              <td>Initial Flask app with MySQL Shell workflows, profiles, object storage, and deployment scripts.</td>
+            </tr>
+            <tr>
+              <td>1.0.1</td>
+              <td>Historical incremental</td>
+              <td>Record any prior DBConsole-learned setup and auto-update changes discovered from Git history.</td>
+            </tr>
+            <tr>
+              <td>1.0.2</td>
+              <td>Current</td>
+              <td>Login secrecy, local-admin profile gating, update hardening, Python 3.12 metadata, local state git-ignore, and profile tracking removal.</td>
+            </tr>
+            <tr>
+              <td>1.0.3</td>
+              <td>Completed security release</td>
+              <td>Complete socket-only app-managed MySQL bootstrap, platform installer alignment, SSH uploaded-key runtime resolution, generated Flask secret key, and dependency audit remediation.</td>
+            </tr>
+            <tr>
+              <td>1.0.4</td>
+              <td>Current</td>
+              <td>OCI Compute init-script documentation for OL8, OL9, and Ubuntu; old Auto-Update compatibility documentation; setup rerun password-rotation fix; standalone verification and vulnerability reports.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Verification Gate</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Gate</th>
+              <th>Command or Check</th>
+              <th>Expected Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Python syntax</td>
+              <td><code>.venv/bin/python -m py_compile app.py modules/profiles.py modules/mysql_connection.py mysql_shell_web_update_worker.py</code></td>
+              <td>No compile errors.</td>
+            </tr>
+            <tr>
+              <td>Shell syntax</td>
+              <td><code>bash -n setup.sh secured_connection_profile_setup.sh start_http.sh start_https.sh</code></td>
+              <td>No syntax errors.</td>
+            </tr>
+            <tr>
+              <td>Login secrecy</td>
+              <td>Render <code>/</code> and scan for host, socket, SSH host, and key path markers.</td>
+              <td>Only profile names and allowed default username metadata are present.</td>
+            </tr>
+            <tr>
+              <td>Profile authorization</td>
+              <td>GET and POST <code>/admin/profile</code> without local-admin login and with non-admin login.</td>
+              <td>Redirect or deny. No create, edit, upload, or delete action succeeds.</td>
+            </tr>
+            <tr>
+              <td>Local MySQL socket</td>
+              <td><code>mysql --socket .data/run/mysql.sock -u localadmin -p -e "select @@skip_networking, @@mysqlx_port"</code></td>
+              <td>Socket login works; TCP listener is disabled; X Plugin is disabled or unavailable.</td>
+            </tr>
+            <tr>
+              <td>Dependency audit</td>
+              <td><code>.venv/bin/python -m pip_audit -r requirements.txt</code></td>
+              <td>No known vulnerabilities for release builds. Current mitigation pins Paramiko to the upstream patched commit for <code>CVE-2026-44405</code>.</td>
+            </tr>
+            <tr>
+              <td>Auto-update trust</td>
+              <td>Set allowed remote and branch, then start update from local-admin session.</td>
+              <td>Worker refuses mismatched remote or branch before fetch/pull.</td>
+            </tr>
+            <tr>
+              <td>Old Auto-Update compatibility</td>
+              <td>POST <code>/admin/update/start</code> without bootstrap field names while <code>local-admin-profile</code> is missing.</td>
+              <td>Worker performs a code-refresh-only run, passes <code>MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY=1</code> to setup, and does not create incomplete local-admin metadata.</td>
+            </tr>
+            <tr>
+              <td>OCI OL9 init</td>
+              <td>Launch an OL9 Compute instance with <code>OS_FAMILY=ol9</code>, <code>APP_USER=opc</code>, and explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</td>
+              <td>Banner shows installing/completed state, service starts, init log contains no password, and local-admin login forces password change.</td>
+            </tr>
+            <tr>
+              <td>OCI Ubuntu init</td>
+              <td>Launch an Ubuntu Compute instance with <code>OS_FAMILY=ubuntu</code>, <code>APP_USER=ubuntu</code>, and explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</td>
+              <td>Banner is shown only for <code>ubuntu</code>, AppArmor setup succeeds, service starts, and local-admin login forces password change.</td>
+            </tr>
+            <tr>
+              <td>Platform deployment</td>
+              <td>Run setup on fresh OL8, OL9, Ubuntu, and macOS hosts.</td>
+              <td>Correct Python, MySQL Shell, local MySQL socket, firewall, systemd/start-script behavior per platform.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Decision Log</h2>
+        <ul>
+          <li>Keep <code>profiles.json</code> local-only. Use <code>profiles.example.json</code> for safe starter metadata.</li>
+          <li>Use socket-only local-admin profile as the sole profile-management authority.</li>
+          <li>Do not store database passwords, private-key contents, private-key passphrases, API tokens, or DSNs in profile files.</li>
+          <li>Use verified TLS for repository version checks. Do not disable certificate verification.</li>
+          <li>Use full setup with sudo when available; keep <code>SKIP_PRIVILEGED_SETUP=1</code> as a restricted updater fallback.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

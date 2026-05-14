@@ -1,0 +1,23 @@
+{
+  "profiles": [
+    {
+      "name": "local-admin-profile",
+      "mode": "socket",
+      "host": "",
+      "port": 3306,
+      "socket": ".data/run/mysql.sock",
+      "database": "mysql",
+      "default_username": "localadmin",
+      "profile_management": true,
+      "force_password_change": true,
+      "ssh_enabled": false,
+      "ssh_key_uploaded": false,
+      "ssh_key_id": "",
+      "ssh_host": "",
+      "ssh_port": 22,
+      "ssh_user": "",
+      "ssh_key_path": "",
+      "ssh_config_file": ""
+    }
+  ]
+}

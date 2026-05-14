@@ -1,11 +1,22 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 APP_REPO="${APP_REPO:-https://github.com/ivanxma/mysqlsh-dumpload-webui.git}"
-APP_DIR="${APP_DIR:-/home/opc/mysqlsh-dumpload-webui}"
-APP_USER="${APP_USER:-opc}"
-APP_GROUP="${APP_GROUP:-$APP_USER}"
 OS_FAMILY="${OS_FAMILY:-ol9}"
+case "$OS_FAMILY" in
+  ubuntu)
+    DEFAULT_APP_USER="ubuntu"
+    ;;
+  ol8|ol9)
+    DEFAULT_APP_USER="opc"
+    ;;
+  *)
+    DEFAULT_APP_USER="opc"
+    ;;
+esac
+APP_USER="${APP_USER:-$DEFAULT_APP_USER}"
+APP_GROUP="${APP_GROUP:-$APP_USER}"
+APP_DIR="${APP_DIR:-/home/${APP_USER}/mysqlsh-dumpload-webui}"
 DEPLOY_MODE="${DEPLOY_MODE:-https}"
 HTTP_PORT="${HTTP_PORT:-80}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
@@ -13,6 +24,12 @@ APP_SLUG="${APP_SLUG:-mysql-shell-web}"
 APP_TITLE="${APP_TITLE:-MySQL Shell Web}"
 SERVICE_NAME="${SERVICE_NAME:-${APP_SLUG}-https.service}"
 HOST="${HOST:-0.0.0.0}"
+LOCAL_MYSQL_BOOTSTRAP="${LOCAL_MYSQL_BOOTSTRAP:-1}"
+LOCAL_MYSQL_PROFILE_NAME="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
+LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
+LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-mysql}"
+LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-$APP_DIR/.data/run/mysql.sock}"
 
 STATE_DIR="/var/lib/${APP_SLUG}-init"
 INSTALLING_FLAG="$STATE_DIR/installing"
@@ -115,6 +132,12 @@ install_git() {
 ensure_user
 install_git
 
+if [ "$LOCAL_MYSQL_BOOTSTRAP" = "1" ] && [ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]; then
+  echo "LOCAL_MYSQL_ADMIN_PASSWORD must be explicitly set for first-boot local-admin-profile bootstrap." >&2
+  echo "The password is passed only in the setup environment and is not written to the init state files." >&2
+  exit 1
+fi
+
 parent_dir="$(dirname "$APP_DIR")"
 mkdir -p "$parent_dir"
 chown "$APP_USER:$APP_GROUP" "$parent_dir"
@@ -143,6 +166,11 @@ sudo -u "$APP_USER" env \
   HOST="$HOST" \
   SERVICE_USER="$APP_USER" \
   SERVICE_GROUP="$APP_GROUP" \
+  LOCAL_MYSQL_PROFILE_NAME="$LOCAL_MYSQL_PROFILE_NAME" \
+  LOCAL_MYSQL_ADMIN_USER="$LOCAL_MYSQL_ADMIN_USER" \
+  LOCAL_MYSQL_ADMIN_PASSWORD="$LOCAL_MYSQL_ADMIN_PASSWORD" \
+  LOCAL_MYSQL_DATABASE="$LOCAL_MYSQL_DATABASE" \
+  LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET" \
   bash ./setup.sh "${setup_args[@]}"
 
 if command -v systemctl >/dev/null 2>&1; then

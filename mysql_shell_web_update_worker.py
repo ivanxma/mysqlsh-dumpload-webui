@@ -19,6 +19,20 @@ APP_SLUG = "mysql-shell-web"
 HTTP_SERVICE = f"{APP_SLUG}-http.service"
 HTTPS_SERVICE = f"{APP_SLUG}-https.service"
 SUPPORTED_OS_FAMILIES = {"ol8", "ol9", "ubuntu", "macos"}
+LOCAL_STATE_PREFIXES = (
+    ".runtime.env",
+    ".data/",
+    ".embedded/",
+    "runtime/",
+    "tls/",
+    "profile_ssh_keys/",
+    ".cache/",
+    "profiles.json",
+    "object_storage.json",
+    "par_registry.json",
+    "mysqlsh_option_profiles.json",
+    "etc/my.cnf",
+)
 
 
 def utc_now_iso():
@@ -65,6 +79,26 @@ class UpdateWorker:
             handle.write(str(message or ""))
             if not str(message or "").endswith("\n"):
                 handle.write("\n")
+
+    def repair_permissions(self):
+        for path in (
+            self.repo_dir / ".runtime.env",
+            self.repo_dir / "profiles.json",
+            self.repo_dir / "object_storage.json",
+            self.status_file,
+            self.log_file,
+        ):
+            try:
+                if path.exists():
+                    path.chmod(0o600)
+            except OSError:
+                pass
+        for path in (self.repo_dir / "profile_ssh_keys", self.repo_dir / "tls", self.repo_dir / ".data"):
+            try:
+                if path.exists():
+                    path.chmod(0o700)
+            except OSError:
+                pass
 
     def log_step(self, step, message):
         self.write_status(state="running", step=step, message=message)
@@ -210,9 +244,30 @@ class UpdateWorker:
 
     def ensure_clean_worktree(self):
         status_output = self.run_capture(["git", "status", "--porcelain"], cwd=self.repo_dir).strip()
-        if status_output:
-            self.append_log(status_output)
-            raise RuntimeError("Repository has local changes. Commit or stash them before running the updater.")
+        blocking_lines = []
+        for line in status_output.splitlines():
+            path = line[3:] if len(line) > 3 else line
+            if any(path == prefix.rstrip("/") or path.startswith(prefix) for prefix in LOCAL_STATE_PREFIXES):
+                continue
+            blocking_lines.append(line)
+        if blocking_lines:
+            self.append_log("\n".join(blocking_lines))
+            raise RuntimeError("Repository has local changes outside allowed deployment state. Commit or stash them before running the updater.")
+
+    def verify_update_trust_boundary(self, runtime_env):
+        expected_remote = os.environ.get("MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL") or runtime_env.get(
+            "MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL", ""
+        )
+        expected_branch = os.environ.get("MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH") or runtime_env.get(
+            "MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH", ""
+        )
+        actual_remote = self.run_capture(["git", "config", "--get", "remote.origin.url"], cwd=self.repo_dir).strip()
+        actual_branch = self.run_capture(["git", "branch", "--show-current"], cwd=self.repo_dir).strip()
+        if expected_remote and actual_remote != expected_remote:
+            raise RuntimeError("Update remote does not match MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL.")
+        if expected_branch and actual_branch != expected_branch:
+            raise RuntimeError("Update branch does not match MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH.")
+        return actual_remote, actual_branch
 
     def current_user_group(self):
         try:
@@ -244,6 +299,23 @@ class UpdateWorker:
             "SSL_KEY_FILE": runtime_env.get("SSL_KEY_FILE", ""),
         }
         for key, value in runtime_values.items():
+            if value:
+                setup_env[key] = value
+        for key in (
+            "MYSQL_SHELL_WEB_PYTHON_BIN",
+            "MYSQL_SHELL_WEB_PYTHON_MIN_VERSION",
+            "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT",
+            "MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT",
+            "MYSQL_SHELL_WEB_UPDATE_ALLOWED_REMOTE_URL",
+            "MYSQL_SHELL_WEB_UPDATE_ALLOWED_BRANCH",
+            "LOCAL_MYSQL_PROFILE_NAME",
+            "LOCAL_MYSQL_ADMIN_USER",
+            "LOCAL_MYSQL_ADMIN_PASSWORD",
+            "LOCAL_MYSQL_SOCKET",
+            "LOCAL_MYSQL_DATABASE",
+            "MYSQL_SHELL_WEB_UPDATE_CODE_REFRESH_ONLY",
+        ):
+            value = os.environ.get(key) or runtime_env.get(key, "")
             if value:
                 setup_env[key] = value
 
@@ -359,6 +431,7 @@ class UpdateWorker:
         self.append_log(f"[{utc_now_iso()}] Update worker started.")
 
         runtime_env = self.load_runtime_env()
+        self.repair_permissions()
         os_family, os_family_source = self.resolve_os_family(runtime_env)
         deploy_mode, service_names = self.detect_deploy_mode_and_services(runtime_env)
         self.write_status(service_names=service_names)
@@ -370,12 +443,13 @@ class UpdateWorker:
         self.log_step("Checking repository", "Validating the git worktree.")
         self.ensure_clean_worktree()
 
-        branch_name = self.run_capture(["git", "branch", "--show-current"], cwd=self.repo_dir).strip() or "detached"
-        self.append_log(f"Updating branch {branch_name}.")
+        _remote_url, branch_name = self.verify_update_trust_boundary(runtime_env)
+        self.append_log(f"Updating branch {branch_name or 'detached'}.")
 
         self.log_step("Pulling repository", "Fetching the latest repository changes.")
         self.run_command(["git", "fetch", "--all", "--prune"], cwd=self.repo_dir)
         self.run_command(["git", "pull", "--ff-only"], cwd=self.repo_dir)
+        self.repair_permissions()
 
         full_completion_message = "Repository refresh, setup, and service restart completed."
         limited_completion_message = (
@@ -398,6 +472,7 @@ class UpdateWorker:
                 "setup.sh will skip privileged steps such as firewall changes and systemd unit rewrites."
             )
             self.run_setup(os_family, deploy_mode, runtime_env, skip_privileged_setup=True)
+        self.repair_permissions()
 
         if service_names:
             if sudo_ready:

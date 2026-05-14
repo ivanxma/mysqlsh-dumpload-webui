@@ -17,7 +17,21 @@
       <form method="post" action="{{ url_for('update_mysql_shell_web_retrieve_version') }}">
         <button class="button secondary" type="submit">Retrieve Repo Version</button>
       </form>
-      <form method="post" action="{{ url_for('update_mysql_shell_web_start') }}">
+      <form method="post" action="{{ url_for('update_mysql_shell_web_start') }}" class="update-start-form">
+        {% if local_admin_bootstrap_required %}
+        <label>
+          Local Admin User
+          <input name="local_admin_username" type="text" value="localadmin" autocomplete="off">
+        </label>
+        <label>
+          Temporary Password
+          <input name="local_admin_password" type="password" autocomplete="new-password">
+        </label>
+        <label>
+          Confirm Temporary Password
+          <input name="local_admin_password_confirm" type="password" autocomplete="new-password">
+        </label>
+        {% endif %}
         <button class="button primary" id="update-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>
           Update Application
         </button>
@@ -78,6 +92,11 @@
         <li>The repository worktree must be clean before the update starts.</li>
         <li>The current branch must accept a fast-forward pull.</li>
         <li>Passwordless <code>sudo</code> enables full systemd, firewall, and TLS ownership refresh.</li>
+        {% if local_admin_bootstrap_required %}
+        <li><code>{{ local_admin_profile_name }}</code> is missing or is not socket-only. This update run must repair the local admin profile.</li>
+        {% elif not current_user_is_local_admin %}
+        <li>Log in through <code>{{ local_admin_profile_name }}</code> to start updates.</li>
+        {% endif %}
         <li>Version URL: <code>{{ version_check.version_url or "-" }}</code></li>
         {% if version_check.error %}
         <li>Version check: {{ version_check.error }}</li>
@@ -102,6 +121,7 @@
   (() => {
     const statusUrl = {{ status_url|tojson }};
     const initialStatus = {{ update_status|tojson }};
+    const updatePollToken = {{ update_poll_token|tojson }};
     const restartWaitLimitMs = 30000;
     const pollIntervalMs = 2000;
     const state = {
@@ -160,7 +180,10 @@
       try {
         const response = await window.fetch(statusUrl, {
           method: "GET",
-          headers: { "Accept": "application/json" },
+          headers: {
+            "Accept": "application/json",
+            "X-MySQL-Shell-Web-Update-Poll-Token": updatePollToken || ""
+          },
           cache: "no-store",
           credentials: "same-origin",
         });

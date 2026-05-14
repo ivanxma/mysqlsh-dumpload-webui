@@ -8,6 +8,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
 MYSQL_SHELL_WEB_VERSION_URL = os.environ.get("MYSQL_SHELL_WEB_VERSION_URL", "").strip()
 PROFILE_STORE = ROOT_DIR / "profiles.json"
+PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
+LOCAL_ADMIN_PROFILE_NAME = os.environ.get("LOCAL_MYSQL_PROFILE_NAME", "local-admin-profile").strip() or "local-admin-profile"
 OPTION_PROFILE_STORE = ROOT_DIR / "mysqlsh_option_profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 PAR_STORE = ROOT_DIR / "par_registry.json"
@@ -21,10 +23,17 @@ SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
 
 DEFAULT_PROFILE = {
     "name": "",
+    "mode": "tcp",
     "host": "",
     "port": 3306,
+    "socket": "",
     "database": "mysql",
+    "default_username": "",
+    "profile_management": False,
+    "force_password_change": False,
     "ssh_enabled": False,
+    "ssh_key_uploaded": False,
+    "ssh_key_id": "",
     "ssh_host": "",
     "ssh_port": 22,
     "ssh_user": "",

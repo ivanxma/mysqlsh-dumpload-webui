@@ -45,7 +45,7 @@
 
   <article class="panel">
     <h3>{{ "Edit Profile" if editing_profile.name else "Create Profile" }}</h3>
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" enctype="multipart/form-data">
       <input type="hidden" name="selected_profile" value="{{ selected_profile_name }}">
       <label>
         Profile Name *
@@ -53,15 +53,35 @@
       </label>
       <label>
         MySQL Host *
-        <input name="host" type="text" value="{{ editing_profile.host }}">
+        <input name="host" id="profile_host" type="text" value="{{ editing_profile.host }}">
       </label>
       <label>
         MySQL Port *
         <input name="port" type="number" min="1" value="{{ editing_profile.port }}">
       </label>
       <label>
+        Mode
+        <select name="mode" id="profile_mode">
+          <option value="tcp" {% if editing_profile.mode == "tcp" %}selected{% endif %}>TCP</option>
+          <option value="socket" {% if editing_profile.mode == "socket" %}selected{% endif %}>Socket</option>
+          <option value="ssh" {% if editing_profile.mode == "ssh" %}selected{% endif %}>SSH Tunnel</option>
+        </select>
+      </label>
+      <label id="profile_socket_label">
+        MySQL Socket
+        <input name="socket" id="profile_socket" type="text" value="{{ editing_profile.socket }}">
+      </label>
+      <label>
         Default Database
         <input name="database" type="text" value="{{ editing_profile.database }}">
+      </label>
+      <label>
+        Default Username
+        <input name="default_username" type="text" value="{{ editing_profile.default_username }}">
+      </label>
+      <label class="checkbox-field full-span">
+        <input name="force_password_change" type="checkbox" value="1" {% if editing_profile.force_password_change %}checked{% endif %}>
+        <span>Force password change after next local-admin login</span>
       </label>
       <label class="checkbox-field full-span">
         <input name="ssh_enabled" id="profile_ssh_enabled" type="checkbox" value="1" {% if editing_profile.ssh_enabled %}checked{% endif %}>
@@ -80,9 +100,12 @@
         <input name="ssh_user" id="profile_ssh_user" type="text" value="{{ editing_profile.ssh_user }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
       <label class="full-span ssh-config-field" data-ssh-config-field>
-        Private Key Path
-        <input name="ssh_key_path" id="profile_ssh_key_path" type="text" value="{{ editing_profile.ssh_key_path }}" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
+        Private Key
+        <input name="ssh_private_key" id="profile_ssh_private_key" type="file" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
       </label>
+      {% if editing_profile.ssh_key_uploaded %}
+      <p class="help-text full-span">Key uploaded</p>
+      {% endif %}
       <label class="full-span ssh-config-field" data-ssh-config-field>
         MySQL Shell SSH Config File
         <input name="ssh_config_file" id="profile_ssh_config_file" type="text" value="{{ editing_profile.ssh_config_file }}" placeholder="~/.ssh/config" {% if not editing_profile.ssh_enabled %}disabled{% endif %}>
@@ -101,6 +124,10 @@
 <script>
   (() => {
     const sshEnabled = document.getElementById("profile_ssh_enabled");
+    const profileMode = document.getElementById("profile_mode");
+    const socketLabel = document.getElementById("profile_socket_label");
+    const socketInput = document.getElementById("profile_socket");
+    const hostInput = document.getElementById("profile_host");
     if (!sshEnabled) {
       return;
     }
@@ -109,13 +136,23 @@
       document.getElementById("profile_ssh_host"),
       document.getElementById("profile_ssh_port"),
       document.getElementById("profile_ssh_user"),
-      document.getElementById("profile_ssh_key_path"),
+      document.getElementById("profile_ssh_private_key"),
       document.getElementById("profile_ssh_config_file")
     ].filter(Boolean);
     const sshLabels = Array.from(document.querySelectorAll("[data-ssh-config-field]"));
 
     const syncSshFields = () => {
-      const enabled = !!sshEnabled.checked;
+      const mode = profileMode ? profileMode.value : "tcp";
+      const enabled = !!sshEnabled.checked || mode === "ssh";
+      if (sshEnabled) {
+        sshEnabled.checked = enabled;
+      }
+      if (socketLabel && socketInput && hostInput) {
+        const socketMode = mode === "socket";
+        socketLabel.hidden = !socketMode;
+        socketInput.disabled = !socketMode;
+        hostInput.disabled = socketMode;
+      }
       sshFields.forEach((field) => {
         field.disabled = !enabled;
       });
@@ -125,6 +162,9 @@
     };
 
     sshEnabled.addEventListener("change", syncSshFields);
+    if (profileMode) {
+      profileMode.addEventListener("change", syncSshFields);
+    }
     syncSshFields();
   })();
 </script>
