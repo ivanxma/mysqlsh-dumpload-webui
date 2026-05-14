@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .runtime.env
+.flask_secret_key
 runtime/
 .data/
 .embedded/
