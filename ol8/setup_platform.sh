@@ -51,7 +51,7 @@ platform_open_firewall_port() {
   run_as_root systemctl enable --now firewalld
   sleep 2
   echo "OL8 active firewalld zones:"
-  for zone_attempt in 1 2 3 4 5 6; do
+  for zone_attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if active_zones="$(platform_firewall_cmd --get-active-zones)"; then
       printf '%s\n' "$active_zones"
       zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
@@ -59,10 +59,12 @@ platform_open_firewall_port() {
         break
       fi
     fi
-    if [[ "$zone_attempt" != "6" ]]; then
-      echo "Unable to read OL8 active firewalld zone; retrying ${zone_attempt}/6." >&2
-      run_as_root systemctl restart firewalld || true
-      sleep 5
+    if [[ "$zone_attempt" != "12" ]]; then
+      echo "Unable to read OL8 active firewalld zone; retrying ${zone_attempt}/12." >&2
+      if [[ "$zone_attempt" == "1" ]]; then
+        run_as_root systemctl restart firewalld || true
+      fi
+      sleep 15
     fi
   done
 
