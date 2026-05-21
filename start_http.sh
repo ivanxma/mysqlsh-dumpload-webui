@@ -29,11 +29,9 @@ exec "$PYTHON_BIN" - <<'PY'
 import os
 
 import app as module
+from modules.app_startup import initialize_app_files
 
-module.ensure_profile_store()
-module.ensure_object_storage_store()
-module.ensure_par_store()
-module.ensure_runtime_dirs()
+initialize_app_files()
 module.app.run(
     debug=False,
     host=os.environ.get("HOST", "0.0.0.0"),
