@@ -1,10 +1,16 @@
 # Version History
 
-Current version: `1.0.14`
+Current version: `1.0.15`
+
+## 1.0.15 - 2026-05-21
+
+Status: Current
+
+- Made Oracle Linux firewalld zone selection fall back to `public` when firewalld is running but reports neither an active zone nor a default zone during first-boot setup.
 
 ## 1.0.14 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Restarted enabled systemd services during setup reruns so Auto-Update picks up refreshed code and recreated Python virtualenvs immediately.
 

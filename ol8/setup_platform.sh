@@ -53,7 +53,9 @@ platform_resolve_firewalld_zone() {
     return 0
   fi
 
-  return 1
+  echo "Using OL8 firewalld zone public because no active or default zone was reported." >&2
+  printf '%s' "public"
+  return 0
 }
 
 platform_open_firewall_port() {
