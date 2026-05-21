@@ -593,17 +593,28 @@ open_firewall_port() {
 
   if command -v firewall-cmd >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
-      if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
-        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      if sudo timeout "$firewall_timeout" firewall-cmd --add-port="${port_value}/tcp"; then
+        echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+        if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
+          echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+        else
+          echo "firewall-cmd permanent persistence did not complete within ${firewall_timeout}s or returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
+        fi
+        return 0
       else
-        echo "firewall-cmd did not complete within ${firewall_timeout}s or returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+        echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error. Trying another firewall method for ${port_value}/tcp." >&2
       fi
-    elif sudo firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo firewall-cmd --reload; then
-      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+    elif sudo firewall-cmd --add-port="${port_value}/tcp"; then
+      echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      if sudo firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo firewall-cmd --reload; then
+        echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      else
+        echo "firewall-cmd permanent persistence returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
+      fi
+      return 0
     else
-      echo "firewall-cmd returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
+      echo "firewall-cmd runtime update returned an error. Trying another firewall method for ${port_value}/tcp." >&2
     fi
-    return 0
   fi
 
   if command -v ufw >/dev/null 2>&1; then
@@ -617,7 +628,8 @@ open_firewall_port() {
 
   if command -v iptables >/dev/null 2>&1; then
     if sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
-      sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT; then
+      sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
+      sudo iptables -I INPUT 1 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT; then
       echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with iptables."
       if command -v iptables-save >/dev/null 2>&1 && [[ -d /etc/iptables ]]; then
         sudo sh -c 'iptables-save > /etc/iptables/rules.v4' || true
