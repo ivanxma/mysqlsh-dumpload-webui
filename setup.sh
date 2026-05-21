@@ -608,17 +608,24 @@ open_firewall_port() {
 
   if command -v firewall-cmd >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
-      if sudo timeout "$firewall_timeout" firewall-cmd --add-port="${port_value}/tcp"; then
-        echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-        if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
-          echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-        else
-          echo "firewall-cmd permanent persistence did not complete within ${firewall_timeout}s or returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
+      local firewalld_attempt
+      for firewalld_attempt in 1 2 3 4 5 6; do
+        if sudo timeout "$firewall_timeout" firewall-cmd --add-port="${port_value}/tcp"; then
+          echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+          if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
+            echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+          else
+            echo "firewall-cmd permanent persistence did not complete within ${firewall_timeout}s or returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
+          fi
+          return 0
         fi
-        return 0
-      else
-        echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error. Trying another firewall method for ${port_value}/tcp." >&2
-      fi
+        if [[ "$firewalld_attempt" != "6" ]]; then
+          echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error. Retrying ${firewalld_attempt}/6 for ${port_value}/tcp." >&2
+          sleep 10
+        else
+          echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error after retries. Trying another firewall method for ${port_value}/tcp." >&2
+        fi
+      done
     elif sudo firewall-cmd --add-port="${port_value}/tcp"; then
       echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
       if sudo firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo firewall-cmd --reload; then
