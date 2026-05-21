@@ -40,14 +40,12 @@ platform_open_firewall_port() {
   echo "Starting and enabling OL8 firewalld."
   run_as_root systemctl enable --now firewalld
   echo "OL8 active firewalld zones:"
-  run_as_root firewall-cmd --get-active-zones || true
+  run_as_root firewall-cmd --get-active-zones
 
-  zone="$(run_as_root firewall-cmd --get-active-zones 2>/dev/null | awk 'NR == 1 { print $1 }')"
+  zone="$(run_as_root firewall-cmd --get-active-zones | awk 'NR == 1 { print $1 }')"
   if [[ -z "$zone" ]]; then
-    zone="$(run_as_root firewall-cmd --get-default-zone 2>/dev/null || true)"
-  fi
-  if [[ -z "$zone" ]]; then
-    zone="public"
+    echo "Unable to resolve an active OL8 firewalld zone from firewall-cmd --get-active-zones." >&2
+    return 1
   fi
 
   if [[ "$protocol_label" == "HTTPS" && "$port_value" == "443" ]]; then
