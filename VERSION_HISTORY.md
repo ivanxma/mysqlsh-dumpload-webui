@@ -1,10 +1,16 @@
 # Version History
 
-Current version: `1.0.17`
+Current version: `1.0.18`
+
+## 1.0.18 - 2026-05-21
+
+Status: Current
+
+- Simplified OL8 firewalld setup to use the `public` zone directly for the selected listener port, without calling `firewall-cmd --get-active-zones` or resolving the default zone.
 
 ## 1.0.17 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Added bounded retries around the simple Oracle Linux firewalld permanent port update and reload commands to handle first-boot DBus readiness delays without restarting DBus or firewalld.
 

@@ -35,14 +35,12 @@ platform_firewall_cmd() {
 
 platform_print_firewall_manual_followup() {
   local port_value="$1"
-  local zone="${2:-public}"
 
   echo "Unable to complete OL8 firewalld automation. Run these commands manually after checking firewalld health:" >&2
   echo "  sudo systemctl enable --now firewalld" >&2
-  echo "  sudo firewall-cmd --get-active-zones" >&2
-  echo "  sudo firewall-cmd --zone=${zone} --permanent --add-port=${port_value}/tcp" >&2
+  echo "  sudo firewall-cmd --zone=public --permanent --add-port=${port_value}/tcp" >&2
   echo "  sudo firewall-cmd --reload" >&2
-  echo "  sudo firewall-cmd --zone=${zone} --list-ports" >&2
+  echo "  sudo firewall-cmd --zone=public --list-ports" >&2
   echo "  sudo ss -ltnp | grep ':${port_value}'" >&2
 }
 
@@ -68,35 +66,9 @@ platform_firewall_cmd_with_retries() {
   return 1
 }
 
-platform_resolve_firewalld_zone() {
-  local active_zones=""
-  local zone=""
-
-  active_zones="$(platform_firewall_cmd --get-active-zones 2>/dev/null || true)"
-  zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
-  if [[ -n "$zone" ]]; then
-    printf '%s\n' "$active_zones" >&2
-    printf '%s' "$zone"
-    return 0
-  fi
-
-  zone="$(platform_firewall_cmd --get-default-zone 2>/dev/null || true)"
-  zone="$(printf '%s\n' "$zone" | awk 'NR == 1 { print $1 }')"
-  if [[ -n "$zone" ]]; then
-    echo "Using OL8 default firewalld zone because no active zone was reported: $zone" >&2
-    printf '%s' "$zone"
-    return 0
-  fi
-
-  echo "Using OL8 firewalld zone public because no active or default zone was reported." >&2
-  printf '%s' "public"
-  return 0
-}
-
 platform_open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
-  local zone=""
 
   if ! command -v systemctl >/dev/null 2>&1 || ! command -v firewall-cmd >/dev/null 2>&1; then
     echo "systemctl and firewall-cmd are required to open ${port_value}/tcp on OL8." >&2
@@ -107,31 +79,24 @@ platform_open_firewall_port() {
   run_as_root systemctl status firewalld --no-pager || true
   echo "Starting and enabling OL8 firewalld."
   run_as_root systemctl enable --now firewalld
-  echo "OL8 active firewalld zones:"
-  zone="$(platform_resolve_firewalld_zone || true)"
 
-  if [[ -z "$zone" ]]; then
-    platform_print_firewall_manual_followup "$port_value" "public"
-    return 0
-  fi
-
-  echo "Opening raw TCP port ${port_value}/tcp in OL8 firewalld zone: $zone"
-  if ! platform_firewall_cmd_with_retries "permanent port update" --zone="$zone" --permanent --add-port="${port_value}/tcp"; then
-    platform_print_firewall_manual_followup "$port_value" "$zone"
+  echo "Opening raw TCP port ${port_value}/tcp in OL8 firewalld zone: public"
+  if ! platform_firewall_cmd_with_retries "permanent port update" --zone=public --permanent --add-port="${port_value}/tcp"; then
+    platform_print_firewall_manual_followup "$port_value"
     return 0
   fi
 
   echo "Reloading OL8 firewalld."
   if ! platform_firewall_cmd_with_retries "reload" --reload; then
-    platform_print_firewall_manual_followup "$port_value" "$zone"
+    platform_print_firewall_manual_followup "$port_value"
     return 0
   fi
   echo "Verifying OL8 firewalld services:"
-  platform_firewall_cmd --zone="$zone" --list-services || true
+  platform_firewall_cmd --zone=public --list-services || true
   echo "Verifying OL8 firewalld ports:"
-  platform_firewall_cmd --zone="$zone" --list-ports || true
+  platform_firewall_cmd --zone=public --list-ports || true
   echo "Verifying OL8 firewalld zone details:"
-  platform_firewall_cmd --zone="$zone" --list-all || true
+  platform_firewall_cmd --zone=public --list-all || true
   echo "Verifying app listener on ${port_value}:"
   ss -ltnp 2>/dev/null | grep ":${port_value}" || true
 }
