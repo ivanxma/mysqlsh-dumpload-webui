@@ -27,10 +27,23 @@ platform_prepare_local_mysql_security_policy() {
 
 platform_firewall_cmd() {
   if command -v timeout >/dev/null 2>&1; then
-    run_as_root timeout -k 2 8 firewall-cmd "$@"
+    run_as_root timeout -k 3 30 firewall-cmd "$@"
   else
     run_as_root firewall-cmd "$@"
   fi
+}
+
+platform_print_firewall_manual_followup() {
+  local port_value="$1"
+  local zone="${2:-public}"
+
+  echo "Unable to complete OL8 firewalld automation. Run these commands manually after checking firewalld health:" >&2
+  echo "  sudo systemctl enable --now firewalld" >&2
+  echo "  sudo firewall-cmd --get-active-zones" >&2
+  echo "  sudo firewall-cmd --zone=${zone} --permanent --add-port=${port_value}/tcp" >&2
+  echo "  sudo firewall-cmd --reload" >&2
+  echo "  sudo firewall-cmd --zone=${zone} --list-ports" >&2
+  echo "  sudo ss -ltnp | grep ':${port_value}'" >&2
 }
 
 platform_resolve_firewalld_zone() {
@@ -76,21 +89,21 @@ platform_open_firewall_port() {
   zone="$(platform_resolve_firewalld_zone || true)"
 
   if [[ -z "$zone" ]]; then
-    echo "Unable to resolve an OL8 firewalld zone. Run these commands manually after checking firewalld health:" >&2
-    echo "  sudo systemctl enable --now firewalld" >&2
-    echo "  sudo firewall-cmd --get-active-zones" >&2
-    echo "  sudo firewall-cmd --zone=public --permanent --add-port=${port_value}/tcp" >&2
-    echo "  sudo firewall-cmd --reload" >&2
-    echo "  sudo firewall-cmd --zone=public --list-ports" >&2
-    echo "  sudo ss -ltnp | grep ':${port_value}'" >&2
-    return 1
+    platform_print_firewall_manual_followup "$port_value" "public"
+    return 0
   fi
 
   echo "Opening raw TCP port ${port_value}/tcp in OL8 firewalld zone: $zone"
-  platform_firewall_cmd --zone="$zone" --permanent --add-port="${port_value}/tcp"
+  if ! platform_firewall_cmd --zone="$zone" --permanent --add-port="${port_value}/tcp"; then
+    platform_print_firewall_manual_followup "$port_value" "$zone"
+    return 0
+  fi
 
   echo "Reloading OL8 firewalld."
-  platform_firewall_cmd --reload
+  if ! platform_firewall_cmd --reload; then
+    platform_print_firewall_manual_followup "$port_value" "$zone"
+    return 0
+  fi
   echo "Verifying OL8 firewalld services:"
   platform_firewall_cmd --zone="$zone" --list-services || true
   echo "Verifying OL8 firewalld ports:"

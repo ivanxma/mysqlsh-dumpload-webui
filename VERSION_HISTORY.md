@@ -1,10 +1,17 @@
 # Version History
 
-Current version: `1.0.15`
+Current version: `1.0.16`
+
+## 1.0.16 - 2026-05-21
+
+Status: Current
+
+- Extended the bounded Oracle Linux firewalld command timeout for first-boot permanent rule updates.
+- Kept Oracle Linux firewall setup warn-only when firewalld automation fails, while printing the exact manual `firewall-cmd` follow-up commands for the selected port.
 
 ## 1.0.15 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Made Oracle Linux firewalld zone selection fall back to `public` when firewalld is running but reports neither an active zone nor a default zone during first-boot setup.
 
