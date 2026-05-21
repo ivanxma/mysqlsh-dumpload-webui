@@ -29,7 +29,33 @@
         <tr><th>Repository</th><td><code>https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git</code></td></tr>
         <tr><th>Branch</th><td><code>modular-connector-oci-validation</code></td></tr>
         <tr><th>README Source</th><td>README init-script examples are configured for the test repository and validation branch.</td></tr>
-        <tr><th>Status</th><td>Local migration checks completed. OCI instance validation is pending required tenancy inputs.</td></tr>
+        <tr><th>Status</th><td>Connector/Python local checks completed. Consolidated execution order corrected so OCI deployment validation is gated after connector and refactoring validation.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Corrected Execution Gate</h2>
+    <table>
+      <thead>
+        <tr><th>Phase</th><th>Status</th><th>Evidence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Phase 1: Connector/Python migration</td>
+          <td class="pass">Pass</td>
+          <td><code>mysql-connector-python 9.7.0</code> imports successfully; no <code>pymysql</code> or <code>PyMySQL</code> references remain in <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>app.py</code>, <code>modules/</code>, or <code>README.md</code>.</td>
+        </tr>
+        <tr>
+          <td>Phase 2: Modular refactoring gate</td>
+          <td class="pass">Pass</td>
+          <td><code>from app import app</code>, <code>from modules.app_factory import create_app</code>, and <code>.venv/bin/python -m py_compile app.py modules/*.py</code> pass.</td>
+        </tr>
+        <tr>
+          <td>Phase 3: OCI deployment validation</td>
+          <td class="blocked">Deferred</td>
+          <td>Deployment validation must start only after Phases 1 and 2 are accepted. The consolidated and deployment test plans were revised to make this gate explicit.</td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -87,9 +113,9 @@
         <tr><th>Platform</th><th>Status</th><th>Reason</th></tr>
       </thead>
       <tbody>
-        <tr><td>Oracle Linux 8</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code>. Do not use <code>public_loadbalancer_network</code>.</td></tr>
-        <tr><td>Oracle Linux 9</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code>. Do not use <code>public_loadbalancer_network</code>.</td></tr>
-        <tr><td>Ubuntu</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code> plus live AppArmor evidence collection. Do not use <code>public_loadbalancer_network</code>.</td></tr>
+        <tr><td>Oracle Linux 8</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance.</td></tr>
+        <tr><td>Oracle Linux 9</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance.</td></tr>
+        <tr><td>Ubuntu</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance, including live AppArmor evidence.</td></tr>
       </tbody>
     </table>
   </section>
@@ -117,9 +143,19 @@
           <td>Attempted to create <code>mysql-shell-web-validation-public</code> in <code>vcn_ivanma_london</code> with CIDR <code>10.1.50.0/24</code>. OCI CLI timed out before returning a subnet OCID.</td>
         </tr>
         <tr>
-          <td>Instance launch</td>
-          <td class="blocked">Blocked</td>
-          <td>No OL8, OL9, or Ubuntu instances were launched because an allowed subnet was not resolved or created.</td>
+          <td>Allowed subnet resolution</td>
+          <td class="pass">Pass</td>
+          <td>OCI subnet listing found <code>public subnet-vcn_ivanma_london</code> in <code>vcn_ivanma_london</code>, CIDR <code>10.1.0.0/24</code>, with public IP assignment allowed. The disallowed <code>public_loadbalancer_network</code> subnet was not selected.</td>
+        </tr>
+        <tr>
+          <td>Early instance launch correction</td>
+          <td class="blocked">Corrected</td>
+          <td>OL8, OL9, and Ubuntu validation instances were launched before the consolidated order was corrected. Deployment testing was stopped and cleanup was performed before SSH/application validation.</td>
+        </tr>
+        <tr>
+          <td>Cleanup verification</td>
+          <td class="pass">Pass</td>
+          <td>All three early validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376ickop2jz7krdyzzcixtq2hrtwtd7fxbe5d5dgtqkgb4beq</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icdmj35vzgw3ovwazagjswlofcere2d2ycd3md6ib3ubsq</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376ic2s2lgn4pmu67kdnxasupupplynptxc6wzcd2ajoxkjuq</code>.</td>
         </tr>
       </tbody>
     </table>
