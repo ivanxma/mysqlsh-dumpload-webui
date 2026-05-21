@@ -3,59 +3,66 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MySQL Shell Web Deployment Validation Report</title>
+  <title>MySQL Shell Web Refactor and Deployment Validation Report</title>
   <style>
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #18212f; }
-    main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 56px; }
-    h1 { font-size: 30px; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 2px solid #18212f; }
-    h2 { font-size: 22px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #d7dce3; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #172033; background: #ffffff; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 56px; }
+    h1 { font-size: 30px; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 2px solid #172033; }
+    h2 { font-size: 21px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #d8dee8; }
+    h3 { font-size: 16px; margin: 22px 0 8px; }
     table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 14px; }
-    th, td { border: 1px solid #d7dce3; padding: 9px 10px; text-align: left; vertical-align: top; }
-    th { background: #f7f9fb; }
-    code { font-family: Menlo, Consolas, monospace; background: #edf2f7; padding: 1px 4px; border-radius: 4px; }
+    th, td { border: 1px solid #d8dee8; padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fb; }
+    code { font-family: Menlo, Consolas, monospace; background: #eef2f7; padding: 1px 4px; border-radius: 4px; }
     pre { overflow-x: auto; background: #111827; color: #f9fafb; padding: 14px; border-radius: 6px; font-size: 13px; }
     .pass { color: #067647; font-weight: 700; }
-    .blocked { color: #9a5b00; font-weight: 700; }
+    .warn { color: #9a5b00; font-weight: 700; }
+    .fail { color: #b42318; font-weight: 700; }
   </style>
 </head>
 <body>
 <main>
-  <h1>MySQL Shell Web Deployment Validation Report</h1>
+  <h1>MySQL Shell Web Refactor and Deployment Validation Report</h1>
 
   <section>
-    <h2>Build Under Test</h2>
+    <h2>Summary</h2>
     <table>
       <tbody>
         <tr><th>Repository</th><td><code>https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git</code></td></tr>
         <tr><th>Branch</th><td><code>modular-connector-oci-validation</code></td></tr>
-        <tr><th>Validated Commit</th><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td></tr>
-        <tr><th>README Source</th><td>README init-script examples are configured for the test repository and validation branch.</td></tr>
-        <tr><th>Status</th><td>Pass. Connector/Python migration, modular entry-point refactor, README init-script deployment, OL8, OL9, Ubuntu, Ubuntu AppArmor/libaio handling, and cleanup were validated.</td></tr>
+        <tr><th>Final commit</th><td><code>055c6e8e06fdafd4d9695b261db4ac039c083ad7</code></td></tr>
+        <tr><th>Report timestamp</th><td>2026-05-21, Europe/London</td></tr>
+        <tr><th>README source</th><td>OCI user-data was reconstructed from the repository <code>README.md</code> and <code>oci_compute_init.sh</code> for the test branch.</td></tr>
+        <tr><th>Network</th><td>Used VCN <code>vcn_ivanma_london</code>, subnet <code>public subnet-vcn_ivanma_london</code> (<code>10.1.0.0/24</code>). Did not use <code>public_loadbalancer_network</code>.</td></tr>
+        <tr><th>Overall result</th><td class="pass">Pass. Modular refactor, Connector/Python dependency, README init-script deployment, OL8, OL9, Ubuntu/AppArmor checks, and OCI cleanup were verified.</td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>Corrected Execution Gate</h2>
+    <h2>Implemented Changes</h2>
     <table>
-      <thead>
-        <tr><th>Phase</th><th>Status</th><th>Evidence</th></tr>
-      </thead>
+      <thead><tr><th>Area</th><th>Result</th><th>Evidence</th></tr></thead>
       <tbody>
         <tr>
-          <td>Phase 1: Connector/Python migration</td>
+          <td>Modular Flask refactor</td>
           <td class="pass">Pass</td>
-          <td><code>mysql-connector-python 9.7.0</code> imports successfully; no <code>pymysql</code> or <code>PyMySQL</code> references remain in <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>app.py</code>, <code>modules/</code>, or <code>README.md</code>.</td>
+          <td><code>app.py</code> is a thin entry point that calls <code>modules.app_factory.create_app()</code>. No <code>modules/legacy_app.py</code> remains. Route/page logic is split into focused modules including auth, dashboard, profiles, OCI, Object Storage, shell pages/jobs/validation, update pages/services, startup, hooks, state, and shared web/form helpers.</td>
         </tr>
         <tr>
-          <td>Phase 2: Modular refactoring gate</td>
+          <td>MySQL Connector/Python</td>
           <td class="pass">Pass</td>
-          <td><code>app.py</code> is now a thin entry point backed by <code>modules.app_factory.create_app()</code> and <code>modules.legacy_app</code>. Start-script compatibility helpers remain exported from <code>app.py</code>. Import, route-map, and compile checks pass.</td>
+          <td><code>requirements.txt</code> declares <code>mysql-connector-python&gt;=9.5,&lt;10.0</code>. Local and deployed environments imported <code>mysql.connector 9.7.0</code>. Searches found no <code>pymysql</code> or <code>PyMySQL</code> references.</td>
         </tr>
         <tr>
-          <td>Phase 3: OCI deployment validation</td>
+          <td>README/init deployment consistency</td>
           <td class="pass">Pass</td>
-          <td>Fresh OL8, OL9, and Ubuntu instances launched from README user-data after Phases 1 and 2 passed, completed setup, served HTTPS, and were terminated.</td>
+          <td>README user-data wrappers call the test repository branch and reusable <code>oci_compute_init.sh</code>; validation used those wrappers with the supplied temporary bootstrap password only in ignored user-data files.</td>
+        </tr>
+        <tr>
+          <td>Deployment hardening found during execution</td>
+          <td class="pass">Pass</td>
+          <td>Fixed temporary MySQL option-file password quoting, first-boot package-manager retry for RPM lock contention, runtime-first firewalld handling, and an OL8 nft fallback for firewalld public ingress.</td>
         </tr>
       </tbody>
     </table>
@@ -64,142 +71,118 @@
   <section>
     <h2>Local Verification</h2>
     <table>
-      <thead>
-        <tr><th>Check</th><th>Status</th><th>Evidence</th></tr>
-      </thead>
+      <thead><tr><th>Check</th><th>Status</th><th>Evidence</th></tr></thead>
       <tbody>
-        <tr>
-          <td>Connector/Python dependency</td>
-          <td class="pass">Pass</td>
-          <td><code>mysql-connector-python 9.7.0</code> imported from the local virtual environment.</td>
-        </tr>
-        <tr>
-          <td>Application import</td>
-          <td class="pass">Pass</td>
-          <td><code>from app import app</code> returned Flask app name <code>app</code>.</td>
-        </tr>
-        <tr>
-          <td>App factory compatibility</td>
-          <td class="pass">Pass</td>
-          <td><code>from modules.app_factory import create_app</code> returned Flask app name <code>app</code>.</td>
-        </tr>
-        <tr>
-          <td>Python syntax compile</td>
-          <td class="pass">Pass</td>
-          <td><code>.venv/bin/python -m py_compile app.py modules/*.py</code></td>
-        </tr>
-        <tr>
-          <td>Deployment shell syntax</td>
-          <td class="pass">Pass</td>
-          <td><code>bash -n setup.sh</code>, <code>bash -n oci_compute_init.sh</code>, <code>bash -n start_http.sh</code>, and <code>bash -n start_https.sh</code></td>
-        </tr>
-        <tr>
-          <td>Start-script compatibility</td>
-          <td class="pass">Pass</td>
-          <td><code>app.py</code> exports <code>ensure_profile_store</code>, <code>ensure_object_storage_store</code>, <code>ensure_par_store</code>, and <code>ensure_runtime_dirs</code> for <code>start_http.sh</code> and <code>start_https.sh</code>.</td>
-        </tr>
-        <tr>
-          <td>Ubuntu AppArmor setup support</td>
-          <td class="pass">Pass</td>
-          <td><code>setup.sh</code> includes an app-local MySQL allowance for <code>/etc/apparmor.d/local/usr.sbin.mysqld</code> and reloads <code>/etc/apparmor.d/usr.sbin.mysqld</code> when present.</td>
-        </tr>
-        <tr>
-          <td>README and init-script branch controls</td>
-          <td class="pass">Pass</td>
-          <td>README examples use <code>APP_BRANCH</code> and <code>BOOTSTRAP_BRANCH</code>; init/bootstrap scripts honor those values.</td>
-        </tr>
+        <tr><td>Python compile</td><td class="pass">Pass</td><td><code>.venv/bin/python -m py_compile app.py modules/*.py</code></td></tr>
+        <tr><td>Flask import and route contract</td><td class="pass">Pass</td><td><code>from app import app</code>; route count <code>25</code>; test client <code>HEAD /</code> returned <code>200</code> and <code>Cache-Control: no-store</code>.</td></tr>
+        <tr><td>Shell syntax</td><td class="pass">Pass</td><td><code>bash -n start_http.sh</code>, <code>start_https.sh</code>, <code>setup.sh</code>, and <code>oci_compute_init.sh</code>.</td></tr>
+        <tr><td>Legacy/PyMySQL scan</td><td class="pass">Pass</td><td><code>rg "legacy_app|pymysql|PyMySQL" app.py modules requirements.txt README.md setup.sh</code> returned no matches.</td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>OCI Deployment Matrix</h2>
+    <h2>OCI Deployment Inputs</h2>
     <table>
-      <thead>
-        <tr><th>Platform</th><th>Status</th><th>Reason</th></tr>
-      </thead>
       <tbody>
-        <tr><td>Oracle Linux 8</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; instance terminated.</td></tr>
-        <tr><td>Oracle Linux 9</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; instance terminated.</td></tr>
-        <tr><td>Ubuntu</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; AppArmor/libaio evidence collected; instance terminated.</td></tr>
+        <tr><th>Region</th><td><code>uk-london-1</code></td></tr>
+        <tr><th>Compartment</th><td><code>IvanMa-Sandbox</code> / <code>ocid1.compartment.oc1..aaaaaaaacmyondmyipfpewj654u6mcf7czxvs5a3ucxs55iqir5vwcja4nja</code></td></tr>
+        <tr><th>Availability domain</th><td><code>zuBe:UK-LONDON-1-AD-1</code></td></tr>
+        <tr><th>Shape</th><td><code>VM.Standard.E5.Flex</code>, 1 OCPU, 12 GB memory</td></tr>
+        <tr><th>Allowed subnet</th><td><code>public subnet-vcn_ivanma_london</code> / <code>ocid1.subnet.oc1.uk-london-1.aaaaaaaac6fhi2j52ja2k4npuz2xc4e25cyomlktg4qbf4ic663fooltbm7a</code></td></tr>
+        <tr><th>Disallowed subnet</th><td><code>public_loadbalancer_network</code> was not used.</td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>OCI Execution Attempt</h2>
+    <h2>Deployment Results</h2>
     <table>
-      <thead>
-        <tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
-      </thead>
+      <thead><tr><th>Platform</th><th>Commit</th><th>Public IP</th><th>Result</th><th>Evidence</th></tr></thead>
       <tbody>
         <tr>
-          <td>Compartment validation</td>
+          <td>Oracle Linux 8</td>
+          <td><code>055c6e8</code></td>
+          <td><code>145.241.221.59</code></td>
           <td class="pass">Pass</td>
-          <td><code>IvanMa-Sandbox</code> was verified active in <code>uk-london-1</code>.</td>
+          <td>Setup completed; <code>mysql-shell-web-local-mysql.service</code> and <code>mysql-shell-web-https.service</code> active; deployed app imported <code>mysql.connector 9.7.0</code>; route count <code>25</code>; local HTTPS <code>200 OK</code>; external HTTPS <code>200 OK</code>; nft firewalld fallback opened <code>443/tcp</code>.</td>
         </tr>
         <tr>
-          <td>VCN rule</td>
+          <td>Oracle Linux 9</td>
+          <td><code>5cbdceb</code></td>
+          <td><code>193.123.177.113</code></td>
           <td class="pass">Pass</td>
-          <td>Plan revised to use <code>vcn_ivanma_london</code> and explicitly exclude <code>public_loadbalancer_network</code>.</td>
+          <td>Services active; deployed app imported <code>mysql.connector 9.7.0</code>; route count <code>25</code>; local HTTPS <code>200 OK</code>; external HTTPS <code>200 OK</code>; firewalld listed <code>443/tcp</code>.</td>
         </tr>
         <tr>
-          <td>Dedicated validation subnet creation</td>
-          <td class="blocked">Skipped</td>
-          <td>An existing allowed subnet was found, so a dedicated subnet was not required for the final run.</td>
-        </tr>
-        <tr>
-          <td>Allowed subnet resolution</td>
+          <td>Ubuntu 24.04</td>
+          <td><code>5cbdceb</code></td>
+          <td><code>141.147.79.141</code></td>
           <td class="pass">Pass</td>
-          <td>OCI subnet listing found <code>public subnet-vcn_ivanma_london</code> in <code>vcn_ivanma_london</code>, CIDR <code>10.1.0.0/24</code>, with public IP assignment allowed. The disallowed <code>public_loadbalancer_network</code> subnet was not selected.</td>
-        </tr>
-        <tr>
-          <td>Early instance launch correction</td>
-          <td class="blocked">Corrected</td>
-          <td>An earlier run against commit <code>2dd969222d5dd7b71e4f6fe5eff5d0f52b433bcd</code> exposed a refactor compatibility bug: <code>start_https.sh</code> expected helper functions on the root <code>app</code> module. Commit <code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code> fixed that compatibility surface before final validation.</td>
-        </tr>
-        <tr>
-          <td>Superseded-run cleanup</td>
-          <td class="pass">Pass</td>
-          <td>All superseded validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icn3uozq3ba44zkd5scjom5ctuiw5gyywxthgt4bu3psqa</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icacsh5agsryqhxq4zoduavxyiauzuuhsk2m42ldxt2zxq</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icyiiha7gyzyt6al4bfjpqqxfrurpar74uskknbkkoq5ea</code>.</td>
-        </tr>
-        <tr>
-          <td>Final-run cleanup</td>
-          <td class="pass">Pass</td>
-          <td>All final validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icjbj7nrxilxv326xojvudesnzoqy2egdawbajl5bwa57a</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icargrerqwhmyfeu5z5lidanbhzigeubmdbexrcfvfxxsa</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icx2lasxx4ouvi3wjb44x55djbf4ilba23mkooye6vdueq</code>.</td>
+          <td>Services active; deployed app imported <code>mysql.connector 9.7.0</code>; route count <code>25</code>; local HTTPS <code>200 OK</code>; external HTTPS <code>200 OK</code>; AppArmor loaded with no MySQL profile present on image; <code>libaio.so.1</code> compatibility symlink used by embedded MySQL.</td>
         </tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>Final OCI Evidence</h2>
+    <h2>Execution Findings</h2>
     <table>
-      <thead>
-        <tr><th>Check</th><th>OL8</th><th>OL9</th><th>Ubuntu</th></tr>
-      </thead>
+      <thead><tr><th>Finding</th><th>Resolution</th><th>Evidence</th></tr></thead>
       <tbody>
-        <tr><td>Public IP</td><td><code>132.145.28.95</code></td><td><code>79.72.74.75</code></td><td><code>141.147.100.74</code></td></tr>
-        <tr><td>Git commit on instance</td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td></tr>
-        <tr><td>Connector/Python</td><td><code>9.7.0</code></td><td><code>9.7.0</code></td><td><code>9.7.0</code></td></tr>
-        <tr><td>MySQL Shell</td><td><code>9.7.0</code></td><td><code>9.7.0</code></td><td><code>9.7.0</code></td></tr>
-        <tr><td>Local MySQL service</td><td class="pass">active</td><td class="pass">active</td><td class="pass">active</td></tr>
-        <tr><td>HTTPS service</td><td class="pass">active</td><td class="pass">active</td><td class="pass">active</td></tr>
-        <tr><td>External HTTPS probe</td><td><code>HTTP/1.1 200 OK</code></td><td><code>HTTP/1.1 200 OK</code></td><td><code>HTTP/1.1 200 OK</code></td></tr>
-        <tr><td>Login banner</td><td class="pass">completed banner with active service status</td><td class="pass">completed banner with active service status</td><td class="pass">completed banner with active service status</td></tr>
-        <tr><td>Firewall</td><td class="blocked">setup completed; firewalld command timed out but external HTTPS worked</td><td class="pass">opened <code>443/tcp</code> with <code>firewall-cmd</code></td><td class="pass">opened <code>443/tcp</code> with <code>iptables</code></td></tr>
-        <tr><td>Ubuntu AppArmor/libaio</td><td>Not applicable</td><td>Not applicable</td><td class="pass">AppArmor loaded; MySQL AppArmor profile absent on image; <code>libaio.so.1</code> resolved through generated compat symlink and service <code>LD_LIBRARY_PATH</code>.</td></tr>
+        <tr>
+          <td>Initial modular route split failed because star imports excluded underscore-prefixed helpers.</td>
+          <td class="pass">Fixed</td>
+          <td>Helper modules now export explicit <code>__all__</code>; local <code>HEAD /</code> and deployed route imports returned <code>200</code>.</td>
+        </tr>
+        <tr>
+          <td>Ubuntu embedded MySQL initialization failed with temporary root password parsing.</td>
+          <td class="pass">Fixed</td>
+          <td><code>setup.sh</code> now quotes temporary MySQL client option-file passwords; fresh Ubuntu deployment passed.</td>
+        </tr>
+        <tr>
+          <td>OL8 first boot can encounter RPM lock contention while installing <code>git</code>.</td>
+          <td class="pass">Fixed</td>
+          <td>Bootstrap package installs now retry with bounded delay before failing.</td>
+        </tr>
+        <tr>
+          <td>OL8 firewalld DBus was not usable during first boot, and plain iptables did not open the active firewalld public zone.</td>
+          <td class="pass">Fixed</td>
+          <td>Setup retries runtime firewalld and falls back to <code>nft add rule inet firewalld filter_IN_public_allow tcp dport 443 accept</code>; clean OL8 external HTTPS returned <code>200 OK</code>.</td>
+        </tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>Notes</h2>
-    <ul>
-      <li>The temporary local-admin bootstrap password was used only in ignored local user-data files and was not committed.</li>
-      <li>Raw OCI state and evidence remain under ignored <code>oci-compute-verification/</code>.</li>
-      <li>The final tracked report is this sanitized HTML file.</li>
-    </ul>
+    <h2>Evidence Files</h2>
+    <table>
+      <thead><tr><th>Evidence</th><th>Ignored local path</th></tr></thead>
+      <tbody>
+        <tr><td>OL8 final deployment</td><td><code>oci-compute-verification/evidence/ol8-evidence-055c6e8.txt</code>, <code>ol8-final-init-tail-055c6e8.txt</code>, <code>ol8-external-final-055c6e8.txt</code></td></tr>
+        <tr><td>OL9 deployment</td><td><code>oci-compute-verification/evidence/ol9-evidence-5cbdceb.txt</code>, <code>ol9-external-5cbdceb.txt</code></td></tr>
+        <tr><td>Ubuntu deployment</td><td><code>oci-compute-verification/evidence/ubuntu-evidence-5cbdceb.txt</code>, <code>ubuntu-external-5cbdceb.txt</code></td></tr>
+        <tr><td>Cleanup inventory</td><td><code>oci-compute-verification/launch/instance-list-after-cleanup-20260521.json</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Cleanup</h2>
+    <p class="pass">All validation instances with display names matching <code>mysqlsh-web-modular-*</code> reached <code>TERMINATED</code>.</p>
+    <pre>mysqlsh-web-modular-ol8-20260521-055c6e8      TERMINATED
+mysqlsh-web-modular-ol8-20260521-1019         TERMINATED
+mysqlsh-web-modular-ol8-20260521-1035         TERMINATED
+mysqlsh-web-modular-ol8-20260521-12f16b8      TERMINATED
+mysqlsh-web-modular-ol8-20260521-5cbdceb      TERMINATED
+mysqlsh-web-modular-ol8-20260521-6e004a1      TERMINATED
+mysqlsh-web-modular-ol8-20260521-da8c10e      TERMINATED
+mysqlsh-web-modular-ol9-20260521-1019         TERMINATED
+mysqlsh-web-modular-ol9-20260521-1035         TERMINATED
+mysqlsh-web-modular-ol9-20260521-5cbdceb      TERMINATED
+mysqlsh-web-modular-ubuntu-20260521-1019      TERMINATED
+mysqlsh-web-modular-ubuntu-20260521-1035      TERMINATED
+mysqlsh-web-modular-ubuntu-20260521-5cbdceb   TERMINATED</pre>
   </section>
 </main>
 </body>
