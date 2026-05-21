@@ -226,3 +226,5 @@ def render_dashboard(template_name, **context):
         **context,
     )
 
+
+__all__ = [name for name in globals() if not name.startswith("__")]

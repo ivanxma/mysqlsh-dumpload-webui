@@ -283,3 +283,6 @@ def safe_current_prefix(value):
         return normalize_relative_prefix(value)
     except ValueError:
         return ""
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

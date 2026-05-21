@@ -497,3 +497,5 @@ def _start_update_worker(*, bootstrap_payload=None, compatibility_code_refresh=F
     _write_update_status(status)
     return status
 
+
+__all__ = [name for name in globals() if not name.startswith("__")]
