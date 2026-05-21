@@ -1708,6 +1708,14 @@ raise SystemExit(0 if have >= want else 1)
 PY
 }
 
+python_major_minor() {
+  local python_bin="$1"
+  "$python_bin" - <<'PY'
+import sys
+print(f"{sys.version_info[0]}.{sys.version_info[1]}")
+PY
+}
+
 install_python_if_possible() {
   local _os_family="$1"
   if privileged_setup_skipped; then
@@ -1753,9 +1761,20 @@ select_python_bin() {
 
 create_virtualenv() {
   local python_bin="$1"
+  local selected_version=""
+  local existing_version=""
   if [[ "$python_bin" == *$'\n'* || ! -x "$python_bin" ]]; then
     echo "Selected Python interpreter is invalid: $python_bin" >&2
     return 1
+  fi
+  selected_version="$(python_major_minor "$python_bin")"
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    existing_version="$(python_major_minor "$VENV_DIR/bin/python" 2>/dev/null || true)"
+    if python_version_at_least "$VENV_DIR/bin/python" "$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION" && [[ "$existing_version" == "$selected_version" ]]; then
+      return 0
+    fi
+    echo "Existing virtualenv uses Python ${existing_version:-unknown}; recreating with Python $selected_version." >&2
+    mv "$VENV_DIR" "${VENV_DIR}.replaced.$(date +%Y%m%d%H%M%S)"
   fi
   if "$python_bin" -m venv "$VENV_DIR"; then
     return 0
@@ -1776,7 +1795,7 @@ run_dependency_audit() {
     return 0
   }
   mkdir -p "$SCRIPT_DIR/.cache/pip-audit"
-  if "$VENV_DIR/bin/python" -m pip_audit --cache-dir "$SCRIPT_DIR/.cache/pip-audit" -r "$SCRIPT_DIR/requirements.txt"; then
+  if "$VENV_DIR/bin/python" -m pip_audit --local --cache-dir "$SCRIPT_DIR/.cache/pip-audit"; then
     return 0
   fi
   if [[ "$(to_lower "$MYSQL_SHELL_WEB_DEPENDENCY_AUDIT_STRICT")" =~ ^(1|true|yes|on)$ ]]; then

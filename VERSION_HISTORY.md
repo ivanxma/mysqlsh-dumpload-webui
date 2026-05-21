@@ -1,10 +1,18 @@
 # Version History
 
-Current version: `1.0.12`
+Current version: `1.0.13`
+
+## 1.0.13 - 2026-05-21
+
+Status: Current
+
+- Recreated stale virtual environments when their Python major/minor version differs from the selected deployment Python.
+- Ran dependency audit against the installed deployment virtualenv so Connector/Python is not resolved in an older temporary interpreter.
+- Ignored replaced virtualenv backup directories created during setup recovery.
 
 ## 1.0.12 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Simplified Oracle Linux firewall setup in the OL8 and OL9 platform modules to use firewalld active-zone/default-zone permanent port commands only.
 - Removed automatic firewalld restart, DBus restart, and recovery probing from Oracle Linux firewall setup so deployment does not hang or mutate unrelated host services.
