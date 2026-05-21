@@ -87,9 +87,40 @@
         <tr><th>Platform</th><th>Status</th><th>Reason</th></tr>
       </thead>
       <tbody>
-        <tr><td>Oracle Linux 8</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, and bootstrap password.</td></tr>
-        <tr><td>Oracle Linux 9</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, and bootstrap password.</td></tr>
-        <tr><td>Ubuntu</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, bootstrap password, and live AppArmor evidence collection.</td></tr>
+        <tr><td>Oracle Linux 8</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code>. Do not use <code>public_loadbalancer_network</code>.</td></tr>
+        <tr><td>Oracle Linux 9</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code>. Do not use <code>public_loadbalancer_network</code>.</td></tr>
+        <tr><td>Ubuntu</td><td class="blocked">Blocked</td><td>Requires selecting an allowed public subnet in <code>vcn_ivanma_london</code> plus live AppArmor evidence collection. Do not use <code>public_loadbalancer_network</code>.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>OCI Execution Attempt</h2>
+    <table>
+      <thead>
+        <tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Compartment validation</td>
+          <td class="pass">Pass</td>
+          <td><code>IvanMa-Sandbox</code> was verified active in <code>uk-london-1</code>.</td>
+        </tr>
+        <tr>
+          <td>VCN rule</td>
+          <td class="pass">Pass</td>
+          <td>Plan revised to use <code>vcn_ivanma_london</code> and explicitly exclude <code>public_loadbalancer_network</code>.</td>
+        </tr>
+        <tr>
+          <td>Dedicated validation subnet creation</td>
+          <td class="blocked">Blocked</td>
+          <td>Attempted to create <code>mysql-shell-web-validation-public</code> in <code>vcn_ivanma_london</code> with CIDR <code>10.1.50.0/24</code>. OCI CLI timed out before returning a subnet OCID.</td>
+        </tr>
+        <tr>
+          <td>Instance launch</td>
+          <td class="blocked">Blocked</td>
+          <td>No OL8, OL9, or Ubuntu instances were launched because an allowed subnet was not resolved or created.</td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -99,7 +130,7 @@
     <ul>
       <li>Region.</li>
       <li>Compartment name or OCID.</li>
-      <li>VCN and public subnet name or OCID.</li>
+      <li>VCN <code>vcn_ivanma_london</code> and an allowed public subnet name or OCID that is not <code>public_loadbalancer_network</code>.</li>
       <li>Compute shape, OCPU, and memory values when using a flex shape.</li>
       <li>SSH public key path and SSH private key path.</li>
       <li>Temporary <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>, supplied only at execution time.</li>
