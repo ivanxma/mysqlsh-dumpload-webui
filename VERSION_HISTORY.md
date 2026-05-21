@@ -1,10 +1,19 @@
 # Version History
 
-Current version: `1.0.11`
+Current version: `1.0.12`
+
+## 1.0.12 - 2026-05-21
+
+Status: Current
+
+- Simplified Oracle Linux firewall setup in the OL8 and OL9 platform modules to use firewalld active-zone/default-zone permanent port commands only.
+- Removed automatic firewalld restart, DBus restart, and recovery probing from Oracle Linux firewall setup so deployment does not hang or mutate unrelated host services.
+- Kept Ubuntu AppArmor handling in the Ubuntu platform module: add app-local MySQL allowances when the MySQL AppArmor profile exists, reload the profile, and log a safe skip when the profile is absent.
+- Updated README deployment notes to describe the platform-module split and the simplified firewalld flow.
 
 ## 1.0.11 - 2026-05-14
 
-Status: Current
+Status: Completed
 
 - Added macOS embedded MySQL Server tarball defaults for x86_64 and arm64 so `setup.sh macos ...` provisions MySQL Server `9.7.0` under `.embedded/mysql-server/`.
 - Added macOS embedded MySQL `8.4.8` bridge-tarball defaults so old app-managed `8.0` datadirs can use the same upgrade bridge on macOS.

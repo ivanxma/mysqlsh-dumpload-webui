@@ -45,26 +45,10 @@ platform_resolve_firewalld_zone() {
     return 0
   fi
 
-  echo "Unable to read OL9 active firewalld zone; restarting firewalld and checking DBus." >&2
-  run_as_root systemctl restart firewalld || true
-  run_as_root systemctl is-active --quiet dbus || {
-    echo "OL9 DBus is not active; restarting dbus before retrying firewalld." >&2
-    run_as_root systemctl restart dbus || true
-  }
-  sleep 3
-
-  active_zones="$(platform_firewall_cmd --get-active-zones 2>/dev/null || true)"
-  zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
-  if [[ -n "$zone" ]]; then
-    printf '%s\n' "$active_zones" >&2
-    printf '%s' "$zone"
-    return 0
-  fi
-
   zone="$(platform_firewall_cmd --get-default-zone 2>/dev/null || true)"
   zone="$(printf '%s\n' "$zone" | awk 'NR == 1 { print $1 }')"
   if [[ -n "$zone" ]]; then
-    echo "Using OL9 default firewalld zone after active-zone lookup was unavailable: $zone" >&2
+    echo "Using OL9 default firewalld zone because no active zone was reported: $zone" >&2
     printf '%s' "$zone"
     return 0
   fi
@@ -86,22 +70,22 @@ platform_open_firewall_port() {
   run_as_root systemctl status firewalld --no-pager || true
   echo "Starting and enabling OL9 firewalld."
   run_as_root systemctl enable --now firewalld
-  sleep 2
   echo "OL9 active firewalld zones:"
   zone="$(platform_resolve_firewalld_zone || true)"
 
   if [[ -z "$zone" ]]; then
-    echo "Unable to resolve an active OL9 firewalld zone from firewall-cmd --get-active-zones." >&2
+    echo "Unable to resolve an OL9 firewalld zone. Run these commands manually after checking firewalld health:" >&2
+    echo "  sudo systemctl enable --now firewalld" >&2
+    echo "  sudo firewall-cmd --get-active-zones" >&2
+    echo "  sudo firewall-cmd --zone=public --permanent --add-port=${port_value}/tcp" >&2
+    echo "  sudo firewall-cmd --reload" >&2
+    echo "  sudo firewall-cmd --zone=public --list-ports" >&2
+    echo "  sudo ss -ltnp | grep ':${port_value}'" >&2
     return 1
   fi
 
-  if [[ "$protocol_label" == "HTTPS" && "$port_value" == "443" ]]; then
-    echo "Opening standard HTTPS service in OL9 firewalld zone: $zone"
-    platform_firewall_cmd --zone="$zone" --permanent --add-service=https
-  else
-    echo "Opening raw TCP port ${port_value}/tcp in OL9 firewalld zone: $zone"
-    platform_firewall_cmd --zone="$zone" --permanent --add-port="${port_value}/tcp"
-  fi
+  echo "Opening raw TCP port ${port_value}/tcp in OL9 firewalld zone: $zone"
+  platform_firewall_cmd --zone="$zone" --permanent --add-port="${port_value}/tcp"
   echo "Reloading OL9 firewalld."
   platform_firewall_cmd --reload
   echo "Verifying OL9 firewalld services:"
