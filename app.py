@@ -1,6 +1,12 @@
 import os
 
 from modules.app_factory import create_app
+from modules.legacy_app import (
+    ensure_object_storage_store,
+    ensure_par_store,
+    ensure_profile_store,
+    ensure_runtime_dirs,
+)
 
 
 app = create_app()
