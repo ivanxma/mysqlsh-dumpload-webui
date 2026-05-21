@@ -2,6 +2,8 @@
 
 `mysqlsh-dumpload-webui` is a Flask application for running MySQL Shell dump and load workflows from a browser session tied to a live MySQL login.
 
+Current application version: `1.0.12`
+
 ## What It Does
 
 - Authenticates to MySQL with saved profiles and optional SSH tunneling
@@ -66,16 +68,16 @@
 Use this when the host does not already have a local repo checkout:
 
 ```sh
-export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git"
-export BOOTSTRAP_BRANCH="modular-connector-oci-validation"
-curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/setup.sh | sh -s -- ol9 http --http-port 80
+export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui.git"
+export BOOTSTRAP_BRANCH="main"
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ol9 http --http-port 80
 ```
 
 The streamed bootstrap path does the following before handing off to the repo-local `setup.sh`:
 
 - Installs `git` automatically when it is missing on Oracle Linux, Ubuntu, and macOS with Homebrew available
-- Clones `https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git`
-- Checks out `modular-connector-oci-validation`
+- Clones `https://github.com/ivanxma/mysqlsh-dumpload-webui.git`
+- Checks out `main`
 - If the target clone directory already exists, renames it to `<folder>.<YYYYmmddHHMMSS>`
 - Re-runs the cloned `setup.sh` with the same arguments so the normal install flow continues
 
@@ -97,20 +99,20 @@ Example:
 
 ```sh
 export BOOTSTRAP_PARENT_DIR="$HOME/apps"
-export BOOTSTRAP_CLONE_DIR=mysqlsh-dumpload-webui-test
-export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git"
-export BOOTSTRAP_BRANCH="modular-connector-oci-validation"
-curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/setup.sh | sh -s -- ol9 both --http-port 80 --https-port 443
+export BOOTSTRAP_CLONE_DIR=mysqlsh-dumpload-webui
+export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui.git"
+export BOOTSTRAP_BRANCH="main"
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ol9 both --http-port 80 --https-port 443
 ```
 
 ### OCI Compute Instance
 
 For an OCI Compute deployment, create a Linux VM and let the instance bootstrap itself from the Git repo during first boot. Keep tenancy-specific values such as compartment OCID, subnet OCID, image OCID, and SSH public key as your own deployment inputs.
 
-For the validation test environment, use the staging repository and branch in the examples below:
+Use the final deployment repository and branch in the examples below:
 
-- Repository: `https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git`
-- Branch: `modular-connector-oci-validation`
+- Repository: `https://github.com/ivanxma/mysqlsh-dumpload-webui.git`
+- Branch: `main`
 
 Instance values to choose before creation:
 
@@ -155,12 +157,12 @@ if ! command -v curl >/dev/null 2>&1; then
   fi
 fi
 
-curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/oci_compute_init.sh \
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
   -o /tmp/mysql-shell-web-oci-compute-init.sh
 
-APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git" \
-APP_BRANCH="modular-connector-oci-validation" \
-APP_DIR="/home/opc/mysqlsh-dumpload-webui-test" \
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_BRANCH="main" \
+APP_DIR="/home/opc/mysqlsh-dumpload-webui" \
 APP_USER="opc" \
 APP_GROUP="opc" \
 OS_FAMILY="ol8" \
@@ -200,12 +202,12 @@ if ! command -v curl >/dev/null 2>&1; then
   fi
 fi
 
-curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/oci_compute_init.sh \
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
   -o /tmp/mysql-shell-web-oci-compute-init.sh
 
-APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git" \
-APP_BRANCH="modular-connector-oci-validation" \
-APP_DIR="/home/opc/mysqlsh-dumpload-webui-test" \
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_BRANCH="main" \
+APP_DIR="/home/opc/mysqlsh-dumpload-webui" \
 APP_USER="opc" \
 APP_GROUP="opc" \
 OS_FAMILY="ol9" \
@@ -242,12 +244,12 @@ if ! command -v curl >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y curl
 fi
 
-curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/oci_compute_init.sh \
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/oci_compute_init.sh \
   -o /tmp/mysql-shell-web-oci-compute-init.sh
 
-APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git" \
-APP_BRANCH="modular-connector-oci-validation" \
-APP_DIR="/home/ubuntu/mysqlsh-dumpload-webui-test" \
+APP_REPO="https://github.com/ivanxma/mysqlsh-dumpload-webui.git" \
+APP_BRANCH="main" \
+APP_DIR="/home/ubuntu/mysqlsh-dumpload-webui" \
 APP_USER="ubuntu" \
 APP_GROUP="ubuntu" \
 OS_FAMILY="ubuntu" \
@@ -289,7 +291,7 @@ Once setup finishes, open the app in a browser and continue with the normal work
 - Environment form:
   - `HTTP_PORT=8080 HTTPS_PORT=8443 ./setup.sh ol9 both`
 - Streamed bootstrap form:
-  - `export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git"; export BOOTSTRAP_BRANCH="modular-connector-oci-validation"; curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui-test/modular-connector-oci-validation/setup.sh | sh -s -- ubuntu both --http-port 8080 --https-port 8443`
+  - `export BOOTSTRAP_REPO_URL="https://github.com/ivanxma/mysqlsh-dumpload-webui.git"; export BOOTSTRAP_BRANCH="main"; curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlsh-dumpload-webui/main/setup.sh | sh -s -- ubuntu both --http-port 8080 --https-port 8443`
 - In an interactive run, `setup.sh` prompts for the port or ports required by the selected deploy mode:
   - `http`: prompts for the HTTP port
   - `https`: prompts for the HTTPS port
