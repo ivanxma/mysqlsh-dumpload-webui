@@ -46,6 +46,28 @@ platform_print_firewall_manual_followup() {
   echo "  sudo ss -ltnp | grep ':${port_value}'" >&2
 }
 
+platform_firewall_cmd_with_retries() {
+  local description="$1"
+  shift
+  local attempt=1
+  local max_attempts="${MYSQL_SHELL_WEB_FIREWALL_RETRY_ATTEMPTS:-3}"
+  local delay_seconds="${MYSQL_SHELL_WEB_FIREWALL_RETRY_DELAY:-20}"
+
+  while [[ "$attempt" -le "$max_attempts" ]]; do
+    if platform_firewall_cmd "$@"; then
+      return 0
+    fi
+    echo "OL9 firewalld ${description} failed on attempt ${attempt}/${max_attempts}." >&2
+    if [[ "$attempt" -lt "$max_attempts" ]]; then
+      echo "Retrying OL9 firewalld ${description} after ${delay_seconds}s." >&2
+      sleep "$delay_seconds"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  return 1
+}
+
 platform_resolve_firewalld_zone() {
   local active_zones=""
   local zone=""
@@ -94,12 +116,12 @@ platform_open_firewall_port() {
   fi
 
   echo "Opening raw TCP port ${port_value}/tcp in OL9 firewalld zone: $zone"
-  if ! platform_firewall_cmd --zone="$zone" --permanent --add-port="${port_value}/tcp"; then
+  if ! platform_firewall_cmd_with_retries "permanent port update" --zone="$zone" --permanent --add-port="${port_value}/tcp"; then
     platform_print_firewall_manual_followup "$port_value" "$zone"
     return 0
   fi
   echo "Reloading OL9 firewalld."
-  if ! platform_firewall_cmd --reload; then
+  if ! platform_firewall_cmd_with_retries "reload" --reload; then
     platform_print_firewall_manual_followup "$port_value" "$zone"
     return 0
   fi

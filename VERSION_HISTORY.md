@@ -1,10 +1,16 @@
 # Version History
 
-Current version: `1.0.16`
+Current version: `1.0.17`
+
+## 1.0.17 - 2026-05-21
+
+Status: Current
+
+- Added bounded retries around the simple Oracle Linux firewalld permanent port update and reload commands to handle first-boot DBus readiness delays without restarting DBus or firewalld.
 
 ## 1.0.16 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Extended the bounded Oracle Linux firewalld command timeout for first-boot permanent rule updates.
 - Kept Oracle Linux firewall setup warn-only when firewalld automation fails, while printing the exact manual `firewall-cmd` follow-up commands for the selected port.
