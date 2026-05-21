@@ -648,6 +648,15 @@ open_firewall_port() {
     return 0
   fi
 
+  if command -v nft >/dev/null 2>&1; then
+    if sudo nft list chain inet firewalld filter_IN_public_allow >/dev/null 2>&1; then
+      if sudo nft add rule inet firewalld filter_IN_public_allow tcp dport "$port_value" accept; then
+        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with nft firewalld public allow chain."
+        return 0
+      fi
+    fi
+  fi
+
   if command -v iptables >/dev/null 2>&1; then
     if sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
       sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
