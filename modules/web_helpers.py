@@ -194,6 +194,8 @@ def login_required(view):
 
 
 def render_dashboard(template_name, **context):
+    from modules.update_service import _app_version_payload, _current_version_check
+
     profile = get_session_profile()
     object_storage_config = context.pop("object_storage_config", None) or load_object_storage_config()
     par_entries = get_par_entries_for_bucket(object_storage_config)
