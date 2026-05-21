@@ -1,4 +1,4 @@
 def create_app():
-    from app import app
+    from modules.legacy_app import app
 
     return app
