@@ -29,6 +29,8 @@ platform_open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
   local zone=""
+  local active_zones=""
+  local zone_attempt
 
   if ! command -v systemctl >/dev/null 2>&1 || ! command -v firewall-cmd >/dev/null 2>&1; then
     echo "systemctl and firewall-cmd are required to open ${port_value}/tcp on OL8." >&2
@@ -40,9 +42,20 @@ platform_open_firewall_port() {
   echo "Starting and enabling OL8 firewalld."
   run_as_root systemctl enable --now firewalld
   echo "OL8 active firewalld zones:"
-  run_as_root firewall-cmd --get-active-zones
+  for zone_attempt in 1 2 3 4 5 6; do
+    if active_zones="$(run_as_root firewall-cmd --get-active-zones)"; then
+      printf '%s\n' "$active_zones"
+      zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
+      if [[ -n "$zone" ]]; then
+        break
+      fi
+    fi
+    if [[ "$zone_attempt" != "6" ]]; then
+      echo "Unable to read OL8 active firewalld zone; retrying ${zone_attempt}/6." >&2
+      sleep 10
+    fi
+  done
 
-  zone="$(run_as_root firewall-cmd --get-active-zones | awk 'NR == 1 { print $1 }')"
   if [[ -z "$zone" ]]; then
     echo "Unable to resolve an active OL8 firewalld zone from firewall-cmd --get-active-zones." >&2
     return 1
