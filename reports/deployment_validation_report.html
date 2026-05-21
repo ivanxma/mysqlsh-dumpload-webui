@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MySQL Shell Web Deployment Validation Report</title>
+  <style>
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #18212f; }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 56px; }
+    h1 { font-size: 30px; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 2px solid #18212f; }
+    h2 { font-size: 22px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #d7dce3; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 14px; }
+    th, td { border: 1px solid #d7dce3; padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { background: #f7f9fb; }
+    code { font-family: Menlo, Consolas, monospace; background: #edf2f7; padding: 1px 4px; border-radius: 4px; }
+    pre { overflow-x: auto; background: #111827; color: #f9fafb; padding: 14px; border-radius: 6px; font-size: 13px; }
+    .pass { color: #067647; font-weight: 700; }
+    .blocked { color: #9a5b00; font-weight: 700; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MySQL Shell Web Deployment Validation Report</h1>
+
+  <section>
+    <h2>Build Under Test</h2>
+    <table>
+      <tbody>
+        <tr><th>Repository</th><td><code>https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git</code></td></tr>
+        <tr><th>Branch</th><td><code>modular-connector-oci-validation</code></td></tr>
+        <tr><th>README Source</th><td>README init-script examples are configured for the test repository and validation branch.</td></tr>
+        <tr><th>Status</th><td>Local migration checks completed. OCI instance validation is pending required tenancy inputs.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Local Verification</h2>
+    <table>
+      <thead>
+        <tr><th>Check</th><th>Status</th><th>Evidence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Connector/Python dependency</td>
+          <td class="pass">Pass</td>
+          <td><code>mysql-connector-python 9.7.0</code> imported from the local virtual environment.</td>
+        </tr>
+        <tr>
+          <td>Application import</td>
+          <td class="pass">Pass</td>
+          <td><code>from app import app</code> returned Flask app name <code>app</code>.</td>
+        </tr>
+        <tr>
+          <td>App factory compatibility</td>
+          <td class="pass">Pass</td>
+          <td><code>from modules.app_factory import create_app</code> returned Flask app name <code>app</code>.</td>
+        </tr>
+        <tr>
+          <td>Python syntax compile</td>
+          <td class="pass">Pass</td>
+          <td><code>.venv/bin/python -m py_compile app.py modules/*.py</code></td>
+        </tr>
+        <tr>
+          <td>Deployment shell syntax</td>
+          <td class="pass">Pass</td>
+          <td><code>bash -n setup.sh</code> and <code>bash -n oci_compute_init.sh</code></td>
+        </tr>
+        <tr>
+          <td>Ubuntu AppArmor setup support</td>
+          <td class="pass">Pass</td>
+          <td><code>setup.sh</code> includes an app-local MySQL allowance for <code>/etc/apparmor.d/local/usr.sbin.mysqld</code> and reloads <code>/etc/apparmor.d/usr.sbin.mysqld</code> when present.</td>
+        </tr>
+        <tr>
+          <td>README and init-script branch controls</td>
+          <td class="pass">Pass</td>
+          <td>README examples use <code>APP_BRANCH</code> and <code>BOOTSTRAP_BRANCH</code>; init/bootstrap scripts honor those values.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>OCI Deployment Matrix</h2>
+    <table>
+      <thead>
+        <tr><th>Platform</th><th>Status</th><th>Reason</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Oracle Linux 8</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, and bootstrap password.</td></tr>
+        <tr><td>Oracle Linux 9</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, and bootstrap password.</td></tr>
+        <tr><td>Ubuntu</td><td class="blocked">Blocked</td><td>Requires OCI region, compartment, VCN/subnet, shape, SSH keys, bootstrap password, and live AppArmor evidence collection.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Required OCI Inputs</h2>
+    <ul>
+      <li>Region.</li>
+      <li>Compartment name or OCID.</li>
+      <li>VCN and public subnet name or OCID.</li>
+      <li>Compute shape, OCPU, and memory values when using a flex shape.</li>
+      <li>SSH public key path and SSH private key path.</li>
+      <li>Temporary <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>, supplied only at execution time.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

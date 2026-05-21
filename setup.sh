@@ -129,6 +129,7 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
   fi
 
   BOOTSTRAP_REPO_URL="${BOOTSTRAP_REPO_URL:-https://github.com/ivanxma/mysqlsh-dumpload-webui.git}"
+  BOOTSTRAP_BRANCH="${BOOTSTRAP_BRANCH:-main}"
   bootstrap_repo_name="${BOOTSTRAP_REPO_URL##*/}"
   bootstrap_repo_name="${bootstrap_repo_name%.git}"
   BOOTSTRAP_CLONE_DIR="${BOOTSTRAP_CLONE_DIR:-$bootstrap_repo_name}"
@@ -141,8 +142,8 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
   cd "$BOOTSTRAP_PARENT_DIR"
   bootstrap_prepare_target_dir
 
-  bootstrap_print "Cloning $BOOTSTRAP_REPO_URL into $BOOTSTRAP_TARGET_DIR"
-  git clone "$BOOTSTRAP_REPO_URL" "$BOOTSTRAP_TARGET_DIR"
+  bootstrap_print "Cloning $BOOTSTRAP_REPO_URL branch $BOOTSTRAP_BRANCH into $BOOTSTRAP_TARGET_DIR"
+  git clone --branch "$BOOTSTRAP_BRANCH" --single-branch "$BOOTSTRAP_REPO_URL" "$BOOTSTRAP_TARGET_DIR"
 
   if [ ! -r "$BOOTSTRAP_TARGET_DIR/setup.sh" ]; then
     bootstrap_print "The cloned repository does not contain setup.sh at $BOOTSTRAP_TARGET_DIR/setup.sh"
@@ -243,7 +244,7 @@ Environment overrides:
   LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE
 
 Bootstrap overrides for curl | sh:
-  BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
+  BOOTSTRAP_REPO_URL, BOOTSTRAP_BRANCH, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
 EOF
 }
 
@@ -1399,6 +1400,7 @@ bridge_local_mysql_through_lts_if_supported() {
   echo "Attempting embedded MySQL ${MYSQL_SERVER_BRIDGE_VERSION} bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
   basedir="$(install_embedded_mysql_server "$os_family" bridge)" || return 1
   write_local_mysql_config "$basedir"
+  prepare_ubuntu_apparmor_for_local_mysql "$os_family"
   stop_local_mysql
   start_local_mysql
   stop_local_mysql
@@ -1421,6 +1423,45 @@ skip-networking
 mysqlx=0
 EOF
   chmod 600 "$LOCAL_MYSQL_CNF"
+}
+
+prepare_ubuntu_apparmor_for_local_mysql() {
+  local os_family="$1"
+  local profile_file="/etc/apparmor.d/usr.sbin.mysqld"
+  local local_file="/etc/apparmor.d/local/usr.sbin.mysqld"
+  if [[ "$os_family" != "ubuntu" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$profile_file" ]]; then
+    echo "Ubuntu AppArmor MySQL profile was not found at $profile_file; skipping app-local MySQL allowance."
+    return 0
+  fi
+  if privileged_setup_skipped; then
+    echo "Skipping Ubuntu AppArmor app-local MySQL allowance because SKIP_PRIVILEGED_SETUP is set." >&2
+    return 0
+  fi
+
+  run_as_root mkdir -p "$(dirname "$local_file")"
+  run_as_root touch "$local_file"
+  run_as_root sed -i '/^# BEGIN mysql-shell-web app-local MySQL$/,/^# END mysql-shell-web app-local MySQL$/d' "$local_file"
+  {
+    echo "# BEGIN mysql-shell-web app-local MySQL"
+    echo "$LOCAL_MYSQL_CNF r,"
+    echo "$SCRIPT_DIR/.embedded/mysql-server/** mr,"
+    echo "$SCRIPT_DIR/.data/ rw,"
+    echo "$SCRIPT_DIR/.data/** rwk,"
+    echo "# END mysql-shell-web app-local MySQL"
+  } | run_as_root tee -a "$local_file" >/dev/null
+
+  if command -v apparmor_parser >/dev/null 2>&1; then
+    if run_as_root apparmor_parser -r "$profile_file"; then
+      echo "Reloaded Ubuntu AppArmor MySQL profile with app-local MySQL allowances."
+    else
+      echo "Unable to reload Ubuntu AppArmor MySQL profile. Check AppArmor logs if embedded MySQL startup fails." >&2
+    fi
+  else
+    echo "apparmor_parser is not available; check AppArmor logs if embedded MySQL startup fails." >&2
+  fi
 }
 
 local_mysql_basedir() {
@@ -1521,6 +1562,7 @@ initialize_local_mysql_if_needed() {
 
   basedir="$(install_mysql_server_binaries "$os_family")" || return 1
   write_local_mysql_config "$basedir"
+  prepare_ubuntu_apparmor_for_local_mysql "$os_family"
 
   if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
     stop_local_mysql
@@ -1528,6 +1570,7 @@ initialize_local_mysql_if_needed() {
       bridge_local_mysql_through_lts_if_supported "$os_family"
       basedir="$(local_mysql_basedir)" || return 1
       write_local_mysql_config "$basedir"
+      prepare_ubuntu_apparmor_for_local_mysql "$os_family"
       stop_local_mysql
       start_local_mysql
     fi

@@ -1,31 +1,44 @@
+# Python and editor state
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .DS_Store
+
+# Local runtime configuration and secrets
 .runtime.env
+.runtime.env.*
 .flask_secret_key
+.env
+.env.*
+*.local
+profiles.json
+object_storage.json
+par_registry.json
+mysqlsh_option_profiles.json
+
+# Generated app runtime state
 runtime/
 .data/
 .embedded/
 .cache/
-etc/my.cnf
-tls/
-profile_ssh_keys/
-par_registry.json
-mysqlsh_option_profiles.json
-object_storage.json
-profiles.json
 downloads/
 downloaded/
 embedded_downloads/
 vendor_downloads/
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-*.rpm
-*.deb
-*.pkg
+profile_ssh_keys/
+tls/
+etc/my.cnf
+*.log
+*.pid
+*.sock
+
+# Keys, certificates, tokens, and credential material
 *.key
 *.pem
 *.p12
@@ -34,14 +47,24 @@ vendor_downloads/
 *.keystore
 *.crt
 *.csr
-.env
-.env.*
-*.local
 *secrets*
 *credentials*
 *token*
+
+# Downloaded installers and generated bundles
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.xz
+*.rpm
+*.deb
+*.pkg
+
+# Generated audit, security, and verification reports
 *audit*
 *security-report*
+oci-compute-verification/
 deployment_security_review_plan.html
 verification_report.html
 security_vulnerability_report.html

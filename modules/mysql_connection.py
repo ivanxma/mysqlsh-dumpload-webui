@@ -2,8 +2,8 @@ import os
 import re
 from contextlib import contextmanager
 
-import pymysql
-from pymysql.cursors import DictCursor
+import mysql.connector
+from mysql.connector import InterfaceError, OperationalError
 
 from .config import SYSTEM_SCHEMAS
 from .profiles import resolve_stored_ssh_key_path
@@ -15,6 +15,7 @@ LAKEHOUSE_TABLE_PREDICATE = (
     "(UPPER(COALESCE({engine_column}, '')) = 'LAKEHOUSE' "
     "OR UPPER(COALESCE({create_options_column}, '')) LIKE '%%SECONDARY_ENGINE=RAPID%%')"
 )
+MYSQL_CONNECTION_ERRORS = (OperationalError, InterfaceError)
 
 try:
     import paramiko
@@ -49,6 +50,37 @@ try:
     from sshtunnel import SSHTunnelForwarder
 except ImportError:  # pragma: no cover - optional dependency at runtime
     SSHTunnelForwarder = None
+
+
+class _CursorAdapter:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self._cursor
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._cursor.close()
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class MySQLConnectionAdapter:
+    def __init__(self, connection):
+        self._connection = connection
+
+    def cursor(self, *args, **kwargs):
+        kwargs.setdefault("dictionary", True)
+        kwargs.setdefault("buffered", True)
+        return _CursorAdapter(self._connection.cursor(*args, **kwargs))
+
+    def close(self):
+        self._connection.close()
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
 
 
 @contextmanager
@@ -110,25 +142,26 @@ def mysql_connection(profile, credentials, *, database_override=None, connect_ti
 
     connection = None
     with mysql_endpoint(profile) as endpoint:
+        selected_database = database_override or profile.get("database") or None
         connection_options = dict(
             user=credentials["username"],
             password=credentials["password"],
-            database=database_override or profile["database"] or None,
-            connect_timeout=connect_timeout,
+            connection_timeout=connect_timeout,
             charset="utf8mb4",
-            cursorclass=DictCursor,
             autocommit=autocommit,
         )
+        if selected_database:
+            connection_options["database"] = selected_database
         if "unix_socket" in endpoint:
             connection_options["unix_socket"] = endpoint["unix_socket"]
         else:
             connection_options["host"] = endpoint["host"]
             connection_options["port"] = endpoint["port"]
-        connection = pymysql.connect(
+        connection = mysql.connector.connect(
             **connection_options,
         )
         try:
-            yield connection
+            yield MySQLConnectionAdapter(connection)
         finally:
             if connection is not None:
                 connection.close()
@@ -137,6 +170,15 @@ def mysql_connection(profile, credentials, *, database_override=None, connect_ti
 def test_mysql_connection(profile, credentials):
     with mysql_connection(profile, credentials, connect_timeout=5):
         return True
+
+
+def change_current_user_password(profile, credentials, new_password):
+    with mysql_connection(profile, credentials, connect_timeout=5, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER USER CURRENT_USER() IDENTIFIED BY %s",
+                (new_password,),
+            )
 
 
 def fetch_accessible_schemas(profile, credentials):

@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from uuid import uuid4
 
-import pymysql
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 from modules.config import (
@@ -32,7 +31,9 @@ from modules.config import (
     MYSQL_SHELL_WEB_SESSION_COOKIE_SECURE,
 )
 from modules.mysql_connection import (
+    MYSQL_CONNECTION_ERRORS,
     apply_primary_key_fix,
+    change_current_user_password,
     fetch_accessible_schemas,
     fetch_db_admin_overview,
     fetch_dump_filter_catalog,
@@ -1588,19 +1589,7 @@ def change_local_admin_password():
         else:
             try:
                 credentials = get_session_credentials()
-                with pymysql.connect(
-                    unix_socket=profile["socket"],
-                    user=credentials["username"],
-                    password=credentials["password"],
-                    database=profile.get("database") or "mysql",
-                    connect_timeout=5,
-                    autocommit=True,
-                ) as connection:
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            "ALTER USER CURRENT_USER() IDENTIFIED BY %s",
-                            (new_password,),
-                        )
+                change_current_user_password(profile, credentials, new_password)
                 set_profile_force_password_change(profile["name"], False)
                 clear_login_state(keep_profile=False)
                 flash("Local admin password changed. Log in again with the new password.", "success")
@@ -1678,7 +1667,7 @@ def db_admin_event_toggle():
             f"Event `{event_schema}`.`{event_name}` {'enabled' if event_action == 'enable' else 'disabled'}.",
             "success",
         )
-    except (pymysql.err.OperationalError, pymysql.err.InterfaceError) as error:
+    except MYSQL_CONNECTION_ERRORS as error:
         return _redirect_to_login_for_mysql_unavailable(error)
     except Exception as error:  # pragma: no cover - depends on runtime services
         flash(str(error), "error")
@@ -1716,7 +1705,7 @@ def db_admin_apply_primary_key_fix():
         try:
             result = apply_primary_key_fix(profile, credentials, table_schema, table_name)
             successes.append(result)
-        except (pymysql.err.OperationalError, pymysql.err.InterfaceError) as error:
+        except MYSQL_CONNECTION_ERRORS as error:
             return _redirect_to_login_for_mysql_unavailable(error)
         except Exception as error:  # pragma: no cover - depends on runtime services
             failures.append((table_schema, table_name, str(error)))
@@ -2820,14 +2809,14 @@ def mysqlsh_jobs_cleanup_selected():
     return redirect(url_for("shell_operations_page", page=next_page))
 
 
-@app.errorhandler(pymysql.err.OperationalError)
+@app.errorhandler(MYSQL_CONNECTION_ERRORS[0])
 def handle_mysql_operational_error(error):
     if not is_logged_in():
         return f"MySQL operational error: {error}", 500
     return _redirect_to_login_for_mysql_unavailable(error)
 
 
-@app.errorhandler(pymysql.err.InterfaceError)
+@app.errorhandler(MYSQL_CONNECTION_ERRORS[1])
 def handle_mysql_interface_error(error):
     if not is_logged_in():
         return f"MySQL interface error: {error}", 500
