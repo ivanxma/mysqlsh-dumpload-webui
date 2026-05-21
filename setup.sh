@@ -1551,6 +1551,10 @@ sql_quote() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
 
+mysql_option_file_quote() {
+  printf "%s" "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
 initialize_local_mysql_if_needed() {
   local os_family="$1"
   local basedir
@@ -1594,7 +1598,7 @@ initialize_local_mysql_if_needed() {
   cat >"$defaults_file" <<EOF
 [client]
 user=root
-password=$temp_password
+password="$(mysql_option_file_quote "$temp_password")"
 socket=$LOCAL_MYSQL_SOCKET
 EOF
   chmod 600 "$defaults_file"
