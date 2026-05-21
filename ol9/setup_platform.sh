@@ -27,18 +27,55 @@ platform_prepare_local_mysql_security_policy() {
 
 platform_firewall_cmd() {
   if command -v timeout >/dev/null 2>&1; then
-    run_as_root timeout 20 firewall-cmd "$@"
+    run_as_root timeout -k 2 8 firewall-cmd "$@"
   else
     run_as_root firewall-cmd "$@"
   fi
+}
+
+platform_resolve_firewalld_zone() {
+  local active_zones=""
+  local zone=""
+
+  active_zones="$(platform_firewall_cmd --get-active-zones 2>/dev/null || true)"
+  zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
+  if [[ -n "$zone" ]]; then
+    printf '%s\n' "$active_zones" >&2
+    printf '%s' "$zone"
+    return 0
+  fi
+
+  echo "Unable to read OL9 active firewalld zone; restarting firewalld and checking DBus." >&2
+  run_as_root systemctl restart firewalld || true
+  run_as_root systemctl is-active --quiet dbus || {
+    echo "OL9 DBus is not active; restarting dbus before retrying firewalld." >&2
+    run_as_root systemctl restart dbus || true
+  }
+  sleep 3
+
+  active_zones="$(platform_firewall_cmd --get-active-zones 2>/dev/null || true)"
+  zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
+  if [[ -n "$zone" ]]; then
+    printf '%s\n' "$active_zones" >&2
+    printf '%s' "$zone"
+    return 0
+  fi
+
+  zone="$(platform_firewall_cmd --get-default-zone 2>/dev/null || true)"
+  zone="$(printf '%s\n' "$zone" | awk 'NR == 1 { print $1 }')"
+  if [[ -n "$zone" ]]; then
+    echo "Using OL9 default firewalld zone after active-zone lookup was unavailable: $zone" >&2
+    printf '%s' "$zone"
+    return 0
+  fi
+
+  return 1
 }
 
 platform_open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
   local zone=""
-  local active_zones=""
-  local zone_attempt
 
   if ! command -v systemctl >/dev/null 2>&1 || ! command -v firewall-cmd >/dev/null 2>&1; then
     echo "systemctl and firewall-cmd are required to open ${port_value}/tcp on OL9." >&2
@@ -51,22 +88,7 @@ platform_open_firewall_port() {
   run_as_root systemctl enable --now firewalld
   sleep 2
   echo "OL9 active firewalld zones:"
-  for zone_attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    if active_zones="$(platform_firewall_cmd --get-active-zones)"; then
-      printf '%s\n' "$active_zones"
-      zone="$(printf '%s\n' "$active_zones" | awk 'NR == 1 { print $1 }')"
-      if [[ -n "$zone" ]]; then
-        break
-      fi
-    fi
-    if [[ "$zone_attempt" != "12" ]]; then
-      echo "Unable to read OL9 active firewalld zone; retrying ${zone_attempt}/12." >&2
-      if [[ "$zone_attempt" == "1" ]]; then
-        run_as_root systemctl restart firewalld || true
-      fi
-      sleep 15
-    fi
-  done
+  zone="$(platform_resolve_firewalld_zone || true)"
 
   if [[ -z "$zone" ]]; then
     echo "Unable to resolve an active OL9 firewalld zone from firewall-cmd --get-active-zones." >&2
