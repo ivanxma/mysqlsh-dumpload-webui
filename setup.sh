@@ -24,6 +24,21 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
     fi
   }
 
+  bootstrap_run_with_retries() {
+    bootstrap_attempt=1
+    bootstrap_max_attempts="${BOOTSTRAP_PACKAGE_RETRY_ATTEMPTS:-18}"
+    bootstrap_delay="${BOOTSTRAP_PACKAGE_RETRY_DELAY:-10}"
+    while [ "$bootstrap_attempt" -le "$bootstrap_max_attempts" ]; do
+      if bootstrap_run_as_root "$@"; then
+        return 0
+      fi
+      bootstrap_print "Command failed during first-boot package setup, retry ${bootstrap_attempt}/${bootstrap_max_attempts}: $*"
+      bootstrap_attempt=$((bootstrap_attempt + 1))
+      sleep "$bootstrap_delay"
+    done
+    return 1
+  }
+
   bootstrap_detect_os_family() {
     if [ "$(uname -s)" = "Darwin" ]; then
       printf '%s\n' "macos"
@@ -58,14 +73,14 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
 
     case "$bootstrap_os_family" in
       ubuntu)
-        bootstrap_run_as_root apt-get update
-        bootstrap_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y git
+        bootstrap_run_with_retries apt-get update
+        bootstrap_run_with_retries env DEBIAN_FRONTEND=noninteractive apt-get install -y git
         ;;
       ol8|ol9)
         if bootstrap_has_command dnf; then
-          bootstrap_run_as_root dnf install -y git
+          bootstrap_run_with_retries dnf install -y git
         elif bootstrap_has_command yum; then
-          bootstrap_run_as_root yum install -y git
+          bootstrap_run_with_retries yum install -y git
         else
           bootstrap_print "Neither dnf nor yum was found. Install git manually and rerun setup."
           return 1
