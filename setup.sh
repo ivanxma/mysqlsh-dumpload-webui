@@ -68,6 +68,8 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
       return 0
     fi
 
+    # Platform folders are not available yet when setup.sh is streamed before
+    # cloning the repository, so this small bootstrap path only installs git.
     bootstrap_os_family="$(bootstrap_detect_os_family)" || return 1
     bootstrap_print "git was not found. Installing git for ${bootstrap_os_family}."
 
@@ -360,6 +362,35 @@ run_as_root() {
   fi
 }
 
+load_platform_setup() {
+  local os_family="$1"
+  local platform_script="$SCRIPT_DIR/$os_family/setup_platform.sh"
+  local required_function
+
+  if [[ ! -r "$platform_script" ]]; then
+    echo "Platform setup module was not found: $platform_script" >&2
+    return 1
+  fi
+
+  # shellcheck disable=SC1090
+  source "$platform_script"
+
+  for required_function in \
+    platform_install_python_if_possible \
+    platform_install_venv_support \
+    platform_install_bind_capability_tool \
+    platform_install_embedded_mysql_server_dependencies \
+    platform_prepare_embedded_mysql_runtime_compat \
+    platform_prepare_local_mysql_security_policy \
+    platform_open_firewall_port
+  do
+    if ! declare -F "$required_function" >/dev/null 2>&1; then
+      echo "Platform setup module $platform_script does not define $required_function." >&2
+      return 1
+    fi
+  done
+}
+
 normalize_os_family() {
   case "$(to_lower "$1")" in
     ol8|oraclelinux8|oracle-linux-8) echo "ol8" ;;
@@ -600,78 +631,7 @@ prompt_for_ports_if_needed() {
 open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
-  local firewall_timeout=20
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    echo "macOS does not expose Linux-style port opening here. Allow the Python process through the macOS firewall if prompted, or open ${port_value}/tcp for ${protocol_label} manually." >&2
-    return 0
-  fi
-
-  if command -v firewall-cmd >/dev/null 2>&1; then
-    if command -v timeout >/dev/null 2>&1; then
-      local firewalld_attempt
-      for firewalld_attempt in 1 2 3 4 5 6; do
-        if sudo timeout "$firewall_timeout" firewall-cmd --add-port="${port_value}/tcp"; then
-          echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-          if sudo timeout "$firewall_timeout" firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo timeout "$firewall_timeout" firewall-cmd --reload; then
-            echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-          else
-            echo "firewall-cmd permanent persistence did not complete within ${firewall_timeout}s or returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
-          fi
-          return 0
-        fi
-        if [[ "$firewalld_attempt" != "6" ]]; then
-          echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error. Retrying ${firewalld_attempt}/6 for ${port_value}/tcp." >&2
-          sleep 10
-        else
-          echo "firewall-cmd runtime update did not complete within ${firewall_timeout}s or returned an error after retries. Trying another firewall method for ${port_value}/tcp." >&2
-        fi
-      done
-    elif sudo firewall-cmd --add-port="${port_value}/tcp"; then
-      echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-      if sudo firewall-cmd --permanent --add-port="${port_value}/tcp" && sudo firewall-cmd --reload; then
-        echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-      else
-        echo "firewall-cmd permanent persistence returned an error. Runtime access for ${port_value}/tcp was already opened." >&2
-      fi
-      return 0
-    else
-      echo "firewall-cmd runtime update returned an error. Trying another firewall method for ${port_value}/tcp." >&2
-    fi
-  fi
-
-  if command -v ufw >/dev/null 2>&1; then
-    if sudo ufw allow "${port_value}/tcp"; then
-      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with ufw."
-    else
-      echo "ufw returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
-    fi
-    return 0
-  fi
-
-  if command -v nft >/dev/null 2>&1; then
-    if sudo nft list chain inet firewalld filter_IN_public_allow >/dev/null 2>&1; then
-      if sudo nft add rule inet firewalld filter_IN_public_allow tcp dport "$port_value" accept; then
-        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with nft firewalld public allow chain."
-        return 0
-      fi
-    fi
-  fi
-
-  if command -v iptables >/dev/null 2>&1; then
-    if sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
-      sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT 2>/dev/null || \
-      sudo iptables -I INPUT 1 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT; then
-      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with iptables."
-      if command -v iptables-save >/dev/null 2>&1 && [[ -d /etc/iptables ]]; then
-        sudo sh -c 'iptables-save > /etc/iptables/rules.v4' || true
-      fi
-    else
-      echo "iptables returned an error. Open ${port_value}/tcp for ${protocol_label} manually if it is not already allowed." >&2
-    fi
-    return 0
-  fi
-
-  echo "Firewall tool not found. Open ${port_value}/tcp for ${protocol_label} manually on this host." >&2
+  platform_open_firewall_port "$protocol_label" "$port_value"
 }
 
 resolve_machine_arch() {
@@ -1103,6 +1063,72 @@ WantedBy=multi-user.target
 EOF
 }
 
+port_needs_bind_capability() {
+  local port_value="$1"
+  [[ "$port_value" =~ ^[0-9]+$ ]] && (( port_value < 1024 ))
+}
+
+grant_python_bind_capability_if_needed() {
+  local deploy_mode="$1"
+  local http_port="$2"
+  local https_port="$3"
+  local python_bin="$4"
+  local needs_capability="no"
+  local capability_target
+
+  case "$deploy_mode" in
+    http)
+      if port_needs_bind_capability "$http_port"; then
+        needs_capability="yes"
+      fi
+      ;;
+    https)
+      if port_needs_bind_capability "$https_port"; then
+        needs_capability="yes"
+      fi
+      ;;
+    both)
+      if port_needs_bind_capability "$http_port" || port_needs_bind_capability "$https_port"; then
+        needs_capability="yes"
+      fi
+      ;;
+  esac
+
+  if [[ "$needs_capability" != "yes" ]]; then
+    return 0
+  fi
+  if privileged_setup_skipped; then
+    echo "Skipping setcap for privileged listener ports because SKIP_PRIVILEGED_SETUP is set." >&2
+    return 0
+  fi
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "setcap is only used for Linux privileged listener ports. Skipping on $(uname -s)." >&2
+    return 0
+  fi
+  if ! command -v setcap >/dev/null 2>&1; then
+    platform_install_bind_capability_tool
+  fi
+  if ! command -v setcap >/dev/null 2>&1; then
+    echo "setcap was not found after platform package setup. Relying on systemd CAP_NET_BIND_SERVICE for privileged listener ports." >&2
+    return 0
+  fi
+  if [[ ! -x "$python_bin" ]]; then
+    echo "Cannot apply cap_net_bind_service because Python runtime is not executable: $python_bin" >&2
+    return 1
+  fi
+
+  capability_target="$(cd "$(dirname "$python_bin")" && pwd -P)/$(basename "$python_bin")"
+  if command -v readlink >/dev/null 2>&1; then
+    capability_target="$(readlink -f "$capability_target" 2>/dev/null || printf '%s\n' "$capability_target")"
+  fi
+
+  run_as_root setcap cap_net_bind_service=+ep "$capability_target"
+  echo "Granted cap_net_bind_service to $capability_target for listener ports below 1024."
+  if command -v getcap >/dev/null 2>&1; then
+    getcap "$capability_target" || true
+  fi
+}
+
 enable_systemd_service() {
   local service_name="$1"
 
@@ -1375,26 +1401,12 @@ mysql_server_compat_lib_dir() {
 }
 
 prepare_embedded_mysql_runtime_compat() {
-  local os_family="$1"
+  local _os_family="$1"
   local basedir="$2"
   local compat_lib_dir
-  local libaio_source=""
 
-  case "$os_family" in
-    ubuntu) ;;
-    *) return 0 ;;
-  esac
-
-  if ldd "$basedir/bin/mysqld" 2>/dev/null | grep -q 'libaio\.so\.1 => not found'; then
-    libaio_source="$(find /usr/lib /lib \( -name 'libaio.so.1t64' -o -name 'libaio.so.1t64.*' \) 2>/dev/null | head -n 1 || true)"
-    if [[ -z "$libaio_source" ]]; then
-      echo "Embedded MySQL Server requires libaio.so.1. Install libaio1/libaio1t64 or provide a compatible library." >&2
-      return 1
-    fi
-    compat_lib_dir="$(mysql_server_compat_lib_dir)"
-    mkdir -p "$compat_lib_dir"
-    ln -sfn "$libaio_source" "$compat_lib_dir/libaio.so.1"
-  fi
+  compat_lib_dir="$(mysql_server_compat_lib_dir)"
+  platform_prepare_embedded_mysql_runtime_compat "$basedir" "$compat_lib_dir"
 }
 
 mysql_server_matches_required_series() {
@@ -1405,22 +1417,11 @@ mysql_server_matches_required_series() {
 }
 
 install_embedded_mysql_server_dependencies() {
-  local os_family="$1"
+  local _os_family="$1"
   if privileged_setup_skipped; then
     return 0
   fi
-  case "$os_family" in
-    ol8|ol9)
-      run_as_root dnf install -y libaio xz || true
-      run_as_root dnf install -y ncurses-compat-libs || true
-      ;;
-    ubuntu)
-      run_as_root apt-get update
-      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio1 libncurses6 xz-utils || \
-        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio1t64 libncurses6 xz-utils || \
-        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y libaio-dev libncurses6 xz-utils || true
-      ;;
-  esac
+  platform_install_embedded_mysql_server_dependencies
 }
 
 install_mysql_server_binaries() {
@@ -1443,7 +1444,7 @@ bridge_local_mysql_through_lts_if_supported() {
   echo "Attempting embedded MySQL ${MYSQL_SERVER_BRIDGE_VERSION} bridge upgrade before MySQL ${MYSQL_SHELL_WEB_MYSQL_SERVER_SERIES}.x startup."
   basedir="$(install_embedded_mysql_server "$os_family" bridge)" || return 1
   write_local_mysql_config "$basedir"
-  prepare_ubuntu_apparmor_for_local_mysql "$os_family"
+  prepare_local_mysql_security_policy "$os_family"
   stop_local_mysql
   start_local_mysql
   stop_local_mysql
@@ -1468,43 +1469,9 @@ EOF
   chmod 600 "$LOCAL_MYSQL_CNF"
 }
 
-prepare_ubuntu_apparmor_for_local_mysql() {
-  local os_family="$1"
-  local profile_file="/etc/apparmor.d/usr.sbin.mysqld"
-  local local_file="/etc/apparmor.d/local/usr.sbin.mysqld"
-  if [[ "$os_family" != "ubuntu" ]]; then
-    return 0
-  fi
-  if [[ ! -f "$profile_file" ]]; then
-    echo "Ubuntu AppArmor MySQL profile was not found at $profile_file; skipping app-local MySQL allowance."
-    return 0
-  fi
-  if privileged_setup_skipped; then
-    echo "Skipping Ubuntu AppArmor app-local MySQL allowance because SKIP_PRIVILEGED_SETUP is set." >&2
-    return 0
-  fi
-
-  run_as_root mkdir -p "$(dirname "$local_file")"
-  run_as_root touch "$local_file"
-  run_as_root sed -i '/^# BEGIN mysql-shell-web app-local MySQL$/,/^# END mysql-shell-web app-local MySQL$/d' "$local_file"
-  {
-    echo "# BEGIN mysql-shell-web app-local MySQL"
-    echo "$LOCAL_MYSQL_CNF r,"
-    echo "$SCRIPT_DIR/.embedded/mysql-server/** mr,"
-    echo "$SCRIPT_DIR/.data/ rw,"
-    echo "$SCRIPT_DIR/.data/** rwk,"
-    echo "# END mysql-shell-web app-local MySQL"
-  } | run_as_root tee -a "$local_file" >/dev/null
-
-  if command -v apparmor_parser >/dev/null 2>&1; then
-    if run_as_root apparmor_parser -r "$profile_file"; then
-      echo "Reloaded Ubuntu AppArmor MySQL profile with app-local MySQL allowances."
-    else
-      echo "Unable to reload Ubuntu AppArmor MySQL profile. Check AppArmor logs if embedded MySQL startup fails." >&2
-    fi
-  else
-    echo "apparmor_parser is not available; check AppArmor logs if embedded MySQL startup fails." >&2
-  fi
+prepare_local_mysql_security_policy() {
+  local _os_family="$1"
+  platform_prepare_local_mysql_security_policy "$LOCAL_MYSQL_CNF" "$SCRIPT_DIR"
 }
 
 local_mysql_basedir() {
@@ -1609,7 +1576,7 @@ initialize_local_mysql_if_needed() {
 
   basedir="$(install_mysql_server_binaries "$os_family")" || return 1
   write_local_mysql_config "$basedir"
-  prepare_ubuntu_apparmor_for_local_mysql "$os_family"
+  prepare_local_mysql_security_policy "$os_family"
 
   if [[ -d "$LOCAL_MYSQL_DATADIR/mysql" ]]; then
     stop_local_mysql
@@ -1617,7 +1584,7 @@ initialize_local_mysql_if_needed() {
       bridge_local_mysql_through_lts_if_supported "$os_family"
       basedir="$(local_mysql_basedir)" || return 1
       write_local_mysql_config "$basedir"
-      prepare_ubuntu_apparmor_for_local_mysql "$os_family"
+      prepare_local_mysql_security_policy "$os_family"
       stop_local_mysql
       start_local_mysql
     fi
@@ -1742,25 +1709,12 @@ PY
 }
 
 install_python_if_possible() {
-  local os_family="$1"
+  local _os_family="$1"
   if privileged_setup_skipped; then
     echo "Python $MYSQL_SHELL_WEB_PYTHON_MIN_VERSION+ is missing and SKIP_PRIVILEGED_SETUP is set. Install it manually." >&2
     return 1
   fi
-  case "$os_family" in
-    ol8|ol9)
-      sudo dnf install -y python3.12 python3.12-pip python3.12-devel >&2 || true
-      ;;
-    ubuntu)
-      sudo apt-get update >&2
-      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv python3.12-dev >&2 || true
-      ;;
-    macos)
-      if command -v brew >/dev/null 2>&1; then
-        brew install python@3.12 >&2 || true
-      fi
-      ;;
-  esac
+  platform_install_python_if_possible
 }
 
 select_python_bin() {
@@ -1807,9 +1761,8 @@ create_virtualenv() {
     return 0
   fi
   echo "Virtualenv creation failed. Attempting to install matching venv support and retry." >&2
-  if ! privileged_setup_skipped && command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12-venv || true
+  if ! privileged_setup_skipped; then
+    platform_install_venv_support "$python_bin" "$MYSQL_SHELL_WEB_PYTHON_MIN_VERSION"
   fi
   "$python_bin" -m venv "$VENV_DIR"
 }
@@ -1870,6 +1823,7 @@ main() {
   else
     os_family="$(normalize_os_family "$os_family")"
   fi
+  load_platform_setup "$os_family"
 
   if [[ -z "$DEPLOY_MODE_INPUT" ]]; then
     deploy_mode="http"
@@ -1929,6 +1883,7 @@ main() {
   create_virtualenv "$selected_python"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+  grant_python_bind_capability_if_needed "$deploy_mode" "$http_port" "$https_port" "$VENV_DIR/bin/python"
   ensure_flask_secret_key
   run_dependency_audit
 
