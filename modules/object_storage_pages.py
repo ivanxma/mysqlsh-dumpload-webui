@@ -224,7 +224,7 @@ def register_routes(app):
     @login_required
     def folder_manager_page():
         config = load_object_storage_config()
-        current_prefix = _safe_current_prefix(request.values.get("current_prefix", ""))
+        current_prefix = safe_current_prefix(request.values.get("current_prefix", ""))
     
         if request.method == "POST":
             action = str(request.form.get("folder_action", "")).strip()
