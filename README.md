@@ -2,7 +2,7 @@
 
 `mysqlsh-dumpload-webui` is a Flask application for running MySQL Shell dump and load workflows from a browser session tied to a live MySQL login.
 
-Current application version: `1.0.13`
+Current application version: `1.0.14`
 
 ## What It Does
 

@@ -1,10 +1,16 @@
 # Version History
 
-Current version: `1.0.13`
+Current version: `1.0.14`
+
+## 1.0.14 - 2026-05-21
+
+Status: Current
+
+- Restarted enabled systemd services during setup reruns so Auto-Update picks up refreshed code and recreated Python virtualenvs immediately.
 
 ## 1.0.13 - 2026-05-21
 
-Status: Current
+Status: Completed
 
 - Recreated stale virtual environments when their Python major/minor version differs from the selected deployment Python.
 - Ran dependency audit against the installed deployment virtualenv so Connector/Python is not resolved in an older temporary interpreter.

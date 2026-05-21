@@ -1132,8 +1132,9 @@ grant_python_bind_capability_if_needed() {
 enable_systemd_service() {
   local service_name="$1"
 
-  sudo systemctl enable --now "${service_name}.service"
-  echo "Enabled systemd service ${service_name}.service."
+  sudo systemctl enable "${service_name}.service"
+  sudo systemctl restart "${service_name}.service"
+  echo "Enabled and restarted systemd service ${service_name}.service."
 }
 
 disable_systemd_service() {
@@ -1286,8 +1287,9 @@ EOF
 
   stop_local_mysql
   sudo systemctl daemon-reload
-  sudo systemctl enable --now "${service_name}.service"
-  echo "Enabled systemd service ${service_name}.service."
+  sudo systemctl enable "${service_name}.service"
+  sudo systemctl restart "${service_name}.service"
+  echo "Enabled and restarted systemd service ${service_name}.service."
 }
 
 repair_local_permissions() {
