@@ -28,8 +28,9 @@
       <tbody>
         <tr><th>Repository</th><td><code>https://github.com/ivanxma/mysqlsh-dumpload-webui-test.git</code></td></tr>
         <tr><th>Branch</th><td><code>modular-connector-oci-validation</code></td></tr>
+        <tr><th>Validated Commit</th><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td></tr>
         <tr><th>README Source</th><td>README init-script examples are configured for the test repository and validation branch.</td></tr>
-        <tr><th>Status</th><td>Connector/Python local checks completed. Consolidated execution order corrected so OCI deployment validation is gated after connector and refactoring validation.</td></tr>
+        <tr><th>Status</th><td>Pass. Connector/Python migration, modular entry-point refactor, README init-script deployment, OL8, OL9, Ubuntu, Ubuntu AppArmor/libaio handling, and cleanup were validated.</td></tr>
       </tbody>
     </table>
   </section>
@@ -49,12 +50,12 @@
         <tr>
           <td>Phase 2: Modular refactoring gate</td>
           <td class="pass">Pass</td>
-          <td><code>from app import app</code>, <code>from modules.app_factory import create_app</code>, and <code>.venv/bin/python -m py_compile app.py modules/*.py</code> pass.</td>
+          <td><code>app.py</code> is now a thin entry point backed by <code>modules.app_factory.create_app()</code> and <code>modules.legacy_app</code>. Start-script compatibility helpers remain exported from <code>app.py</code>. Import, route-map, and compile checks pass.</td>
         </tr>
         <tr>
           <td>Phase 3: OCI deployment validation</td>
-          <td class="blocked">Deferred</td>
-          <td>Deployment validation must start only after Phases 1 and 2 are accepted. The consolidated and deployment test plans were revised to make this gate explicit.</td>
+          <td class="pass">Pass</td>
+          <td>Fresh OL8, OL9, and Ubuntu instances launched from README user-data after Phases 1 and 2 passed, completed setup, served HTTPS, and were terminated.</td>
         </tr>
       </tbody>
     </table>
@@ -90,7 +91,12 @@
         <tr>
           <td>Deployment shell syntax</td>
           <td class="pass">Pass</td>
-          <td><code>bash -n setup.sh</code> and <code>bash -n oci_compute_init.sh</code></td>
+          <td><code>bash -n setup.sh</code>, <code>bash -n oci_compute_init.sh</code>, <code>bash -n start_http.sh</code>, and <code>bash -n start_https.sh</code></td>
+        </tr>
+        <tr>
+          <td>Start-script compatibility</td>
+          <td class="pass">Pass</td>
+          <td><code>app.py</code> exports <code>ensure_profile_store</code>, <code>ensure_object_storage_store</code>, <code>ensure_par_store</code>, and <code>ensure_runtime_dirs</code> for <code>start_http.sh</code> and <code>start_https.sh</code>.</td>
         </tr>
         <tr>
           <td>Ubuntu AppArmor setup support</td>
@@ -113,9 +119,9 @@
         <tr><th>Platform</th><th>Status</th><th>Reason</th></tr>
       </thead>
       <tbody>
-        <tr><td>Oracle Linux 8</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance.</td></tr>
-        <tr><td>Oracle Linux 9</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance.</td></tr>
-        <tr><td>Ubuntu</td><td class="blocked">Deferred</td><td>OCI deployment validation is Phase 3 and should run after connector/refactoring acceptance, including live AppArmor evidence.</td></tr>
+        <tr><td>Oracle Linux 8</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; instance terminated.</td></tr>
+        <tr><td>Oracle Linux 9</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; instance terminated.</td></tr>
+        <tr><td>Ubuntu</td><td class="pass">Pass</td><td>First-boot setup reached <code>installed</code>; HTTPS and local MySQL services active; local and external HTTPS returned <code>HTTP/1.1 200 OK</code>; AppArmor/libaio evidence collected; instance terminated.</td></tr>
       </tbody>
     </table>
   </section>
@@ -139,8 +145,8 @@
         </tr>
         <tr>
           <td>Dedicated validation subnet creation</td>
-          <td class="blocked">Blocked</td>
-          <td>Attempted to create <code>mysql-shell-web-validation-public</code> in <code>vcn_ivanma_london</code> with CIDR <code>10.1.50.0/24</code>. OCI CLI timed out before returning a subnet OCID.</td>
+          <td class="blocked">Skipped</td>
+          <td>An existing allowed subnet was found, so a dedicated subnet was not required for the final run.</td>
         </tr>
         <tr>
           <td>Allowed subnet resolution</td>
@@ -150,26 +156,49 @@
         <tr>
           <td>Early instance launch correction</td>
           <td class="blocked">Corrected</td>
-          <td>OL8, OL9, and Ubuntu validation instances were launched before the consolidated order was corrected. Deployment testing was stopped and cleanup was performed before SSH/application validation.</td>
+          <td>An earlier run against commit <code>2dd969222d5dd7b71e4f6fe5eff5d0f52b433bcd</code> exposed a refactor compatibility bug: <code>start_https.sh</code> expected helper functions on the root <code>app</code> module. Commit <code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code> fixed that compatibility surface before final validation.</td>
         </tr>
         <tr>
-          <td>Cleanup verification</td>
+          <td>Superseded-run cleanup</td>
           <td class="pass">Pass</td>
-          <td>All three early validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376ickop2jz7krdyzzcixtq2hrtwtd7fxbe5d5dgtqkgb4beq</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icdmj35vzgw3ovwazagjswlofcere2d2ycd3md6ib3ubsq</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376ic2s2lgn4pmu67kdnxasupupplynptxc6wzcd2ajoxkjuq</code>.</td>
+          <td>All superseded validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icn3uozq3ba44zkd5scjom5ctuiw5gyywxthgt4bu3psqa</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icacsh5agsryqhxq4zoduavxyiauzuuhsk2m42ldxt2zxq</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icyiiha7gyzyt6al4bfjpqqxfrurpar74uskknbkkoq5ea</code>.</td>
+        </tr>
+        <tr>
+          <td>Final-run cleanup</td>
+          <td class="pass">Pass</td>
+          <td>All final validation instances reached <code>TERMINATED</code>: OL8 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icjbj7nrxilxv326xojvudesnzoqy2egdawbajl5bwa57a</code>, OL9 <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icargrerqwhmyfeu5z5lidanbhzigeubmdbexrcfvfxxsa</code>, Ubuntu <code>ocid1.instance.oc1.uk-london-1.anwgiljr7ls376icx2lasxx4ouvi3wjb44x55djbf4ilba23mkooye6vdueq</code>.</td>
         </tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>Required OCI Inputs</h2>
+    <h2>Final OCI Evidence</h2>
+    <table>
+      <thead>
+        <tr><th>Check</th><th>OL8</th><th>OL9</th><th>Ubuntu</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Public IP</td><td><code>132.145.28.95</code></td><td><code>79.72.74.75</code></td><td><code>141.147.100.74</code></td></tr>
+        <tr><td>Git commit on instance</td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td><td><code>8f59b8d55fe6046d620767dec94175eaa4e87b28</code></td></tr>
+        <tr><td>Connector/Python</td><td><code>9.7.0</code></td><td><code>9.7.0</code></td><td><code>9.7.0</code></td></tr>
+        <tr><td>MySQL Shell</td><td><code>9.7.0</code></td><td><code>9.7.0</code></td><td><code>9.7.0</code></td></tr>
+        <tr><td>Local MySQL service</td><td class="pass">active</td><td class="pass">active</td><td class="pass">active</td></tr>
+        <tr><td>HTTPS service</td><td class="pass">active</td><td class="pass">active</td><td class="pass">active</td></tr>
+        <tr><td>External HTTPS probe</td><td><code>HTTP/1.1 200 OK</code></td><td><code>HTTP/1.1 200 OK</code></td><td><code>HTTP/1.1 200 OK</code></td></tr>
+        <tr><td>Login banner</td><td class="pass">completed banner with active service status</td><td class="pass">completed banner with active service status</td><td class="pass">completed banner with active service status</td></tr>
+        <tr><td>Firewall</td><td class="blocked">setup completed; firewalld command timed out but external HTTPS worked</td><td class="pass">opened <code>443/tcp</code> with <code>firewall-cmd</code></td><td class="pass">opened <code>443/tcp</code> with <code>iptables</code></td></tr>
+        <tr><td>Ubuntu AppArmor/libaio</td><td>Not applicable</td><td>Not applicable</td><td class="pass">AppArmor loaded; MySQL AppArmor profile absent on image; <code>libaio.so.1</code> resolved through generated compat symlink and service <code>LD_LIBRARY_PATH</code>.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Notes</h2>
     <ul>
-      <li>Region.</li>
-      <li>Compartment name or OCID.</li>
-      <li>VCN <code>vcn_ivanma_london</code> and an allowed public subnet name or OCID that is not <code>public_loadbalancer_network</code>.</li>
-      <li>Compute shape, OCPU, and memory values when using a flex shape.</li>
-      <li>SSH public key path and SSH private key path.</li>
-      <li>Temporary <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>, supplied only at execution time.</li>
+      <li>The temporary local-admin bootstrap password was used only in ignored local user-data files and was not committed.</li>
+      <li>Raw OCI state and evidence remain under ignored <code>oci-compute-verification/</code>.</li>
+      <li>The final tracked report is this sanitized HTML file.</li>
     </ul>
   </section>
 </main>
