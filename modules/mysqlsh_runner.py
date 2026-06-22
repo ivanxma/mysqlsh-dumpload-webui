@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .config import MYSQLSH_USER_CONFIG_HOME, PROGRESS_DIR, ROOT_DIR
+from .profiles import resolve_stored_ssh_key_path
 
 PYTHON_RUNNER_MODULE = "modules.mysqlsh_python_runner"
 MYSQLSH_RESULT_START = "MYSQL_SHELL_WEB_RESULT_START"
@@ -86,7 +87,8 @@ def get_mysqlsh_status():
 def _build_mysqlsh_ssh_target(profile):
     ssh_host = str(profile.get("ssh_host", "")).strip()
     ssh_user = str(profile.get("ssh_user", "")).strip()
-    ssh_key_path = os.path.expanduser(str(profile.get("ssh_key_path", "")).strip())
+    resolved_key_path = resolve_stored_ssh_key_path(profile) or str(profile.get("ssh_key_path", "")).strip()
+    ssh_key_path = os.path.expanduser(resolved_key_path)
     ssh_port = int(profile.get("ssh_port") or 22)
 
     if not ssh_host or not ssh_user or not ssh_key_path:
