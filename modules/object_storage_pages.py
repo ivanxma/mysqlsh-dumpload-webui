@@ -71,6 +71,7 @@ from modules.option_profiles import (
 )
 from modules.object_storage import (
     create_managed_folder,
+    create_manual_par_record,
     create_par_record,
     delete_folder,
     delete_par_record,
@@ -154,9 +155,11 @@ def register_routes(app):
     def par_manager_page():
         config = load_object_storage_config()
         form_values = {
+            "creation_mode": "object_storage_folder",
             "name": "",
             "target_type": "prefix",
             "relative_prefix": "",
+            "manual_par_url": "",
             "access_type": "AnyObjectReadWrite",
             "allow_listing": True,
             "expires_at": format_datetime_local(datetime.now().astimezone() + timedelta(days=7)),
@@ -167,9 +170,12 @@ def register_routes(app):
             if action == "create":
                 form_values.update(
                     {
+                        "creation_mode": str(request.form.get("creation_mode", "object_storage_folder")).strip()
+                        or "object_storage_folder",
                         "name": str(request.form.get("name", "")).strip(),
                         "target_type": str(request.form.get("target_type", "prefix")).strip() or "prefix",
                         "relative_prefix": str(request.form.get("relative_prefix", "")).strip(),
+                        "manual_par_url": str(request.form.get("manual_par_url", "")).strip(),
                         "access_type": str(request.form.get("access_type", "AnyObjectReadWrite")).strip()
                         or "AnyObjectReadWrite",
                         "allow_listing": _normalize_checkbox(request.form.get("allow_listing")),
@@ -177,7 +183,10 @@ def register_routes(app):
                     }
                 )
                 try:
-                    created_entry = create_par_record(config, request.form)
+                    if form_values["creation_mode"] == "manual":
+                        created_entry = create_manual_par_record(config, request.form)
+                    else:
+                        created_entry = create_par_record(config, request.form)
                     flash(f"PAR `{created_entry['name']}` created and stored for reuse.", "success")
                     return redirect(url_for("par_manager_page"))
                 except Exception as error:  # pragma: no cover - depends on runtime services
@@ -185,7 +194,10 @@ def register_routes(app):
             elif action == "delete":
                 try:
                     deleted_entry = delete_par_record(config, request.form.get("entry_id", ""))
-                    flash(f"PAR `{deleted_entry['name']}` revoked and removed.", "success")
+                    if deleted_entry.get("source") == "manual":
+                        flash(f"PAR `{deleted_entry['name']}` removed.", "success")
+                    else:
+                        flash(f"PAR `{deleted_entry['name']}` revoked and removed.", "success")
                     return redirect(url_for("par_manager_page"))
                 except Exception as error:  # pragma: no cover - depends on runtime services
                     flash(str(error), "error")
@@ -193,18 +205,18 @@ def register_routes(app):
                 selected_entry_ids = [str(item or "").strip() for item in request.form.getlist("selected_pars")]
                 selected_entry_ids = [item for item in selected_entry_ids if item]
                 if not selected_entry_ids:
-                    flash("Select at least one stored PAR to revoke.", "error")
+                    flash("Select at least one stored PAR to remove.", "error")
                 else:
-                    revoked_count = 0
+                    removed_count = 0
                     failures = []
                     for entry_id in selected_entry_ids:
                         try:
                             delete_par_record(config, entry_id)
-                            revoked_count += 1
+                            removed_count += 1
                         except Exception as error:  # pragma: no cover - depends on runtime services
                             failures.append(str(error))
-                    if revoked_count:
-                        flash(f"Revoked {revoked_count} stored PAR{'s' if revoked_count != 1 else ''}.", "success")
+                    if removed_count:
+                        flash(f"Removed {removed_count} stored PAR{'s' if removed_count != 1 else ''}.", "success")
                     for message in failures:
                         flash(message, "error")
                     return redirect(url_for("par_manager_page"))

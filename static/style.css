@@ -492,6 +492,16 @@ pre,
   line-height: 1.25;
 }
 
+.par-mode-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 249, 0.88);
+}
+
 .radio-card-stack {
   display: grid;
   gap: 12px;

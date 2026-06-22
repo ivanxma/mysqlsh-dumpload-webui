@@ -16,6 +16,16 @@
         PAR Name *
         <input name="name" type="text" value="{{ form_values.name }}">
       </label>
+      <div class="par-mode-toggle full-span">
+        <label class="checkbox-field">
+          <input type="radio" name="creation_mode" value="object_storage_folder" data-par-creation-mode {% if form_values.creation_mode != "manual" %}checked{% endif %}>
+          <span>by Object Storage Folder</span>
+        </label>
+        <label class="checkbox-field">
+          <input type="radio" name="creation_mode" value="manual" data-par-creation-mode {% if form_values.creation_mode == "manual" %}checked{% endif %}>
+          <span>Manual PAR Config</span>
+        </label>
+      </div>
       <label>
         Target Type
         <select name="target_type">
@@ -24,10 +34,18 @@
           {% endfor %}
         </select>
       </label>
-      <label>
-        Relative Prefix
-        <input name="relative_prefix" type="text" value="{{ form_values.relative_prefix }}" placeholder="dumps/2026/">
-      </label>
+      <div class="field-grid par-mode-fields" data-par-mode-section="object_storage_folder">
+        <label>
+          Relative Prefix
+          <input name="relative_prefix" type="text" value="{{ form_values.relative_prefix }}" placeholder="dumps/2026/">
+        </label>
+      </div>
+      <div class="field-grid par-mode-fields" data-par-mode-section="manual">
+        <label class="full-span">
+          Manual PAR URL *
+          <input name="manual_par_url" type="url" value="{{ form_values.manual_par_url }}" placeholder="https://objectstorage.../p/.../n/.../b/..." data-par-required="true">
+        </label>
+      </div>
       <label>
         Access
         <select name="access_type">
@@ -66,8 +84,8 @@
           name="par_action"
           value="delete_selected"
           data-par-delete-selected
-          aria-label="Revoke selected PARs"
-          title="Revoke selected PARs"
+          aria-label="Remove selected PARs"
+          title="Remove selected PARs"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
         </button>
@@ -93,6 +111,7 @@
               <input type="checkbox" data-par-select-all aria-label="Select all stored PARs">
             </th>
             <th>Name</th>
+            <th>Source</th>
             <th>Target</th>
             <th>Access</th>
             <th>Expires</th>
@@ -114,6 +133,7 @@
               >
             </td>
             <td>{{ entry.name }}</td>
+            <td>{{ entry.source_label }}</td>
             <td>{{ entry.target_display }}</td>
             <td>{{ entry.access_type }}</td>
             <td>{{ entry.expires_at_local or "-" }}</td>
@@ -145,7 +165,7 @@
     }
     const selectAll = document.querySelector("[data-par-select-all]");
     const rowCheckboxes = Array.from(document.querySelectorAll("[data-par-row-checkbox]"));
-    const revokeButton = document.querySelector("[data-par-delete-selected]");
+    const removeButton = document.querySelector("[data-par-delete-selected]");
     const selectedCount = document.querySelector("[data-par-selected-count]");
 
     const checkedRows = () => rowCheckboxes.filter((checkbox) => checkbox.checked);
@@ -157,8 +177,8 @@
         selectAll.indeterminate = checked.length > 0 && checked.length < rowCheckboxes.length;
         selectAll.disabled = rowCheckboxes.length === 0;
       }
-      if (revokeButton) {
-        revokeButton.disabled = checked.length === 0;
+      if (removeButton) {
+        removeButton.disabled = checked.length === 0;
       }
       if (selectedCount) {
         selectedCount.textContent = `${checked.length} selected`;
@@ -180,12 +200,34 @@
 
     form.addEventListener("submit", (event) => {
       const submitter = event.submitter;
-      if (submitter && submitter.value === "delete_selected" && !window.confirm("Revoke the selected stored PARs?")) {
+      if (submitter && submitter.value === "delete_selected" && !window.confirm("Remove the selected stored PARs?")) {
         event.preventDefault();
       }
     });
 
     syncSelection();
+  })();
+
+  (() => {
+    const radios = Array.from(document.querySelectorAll("[data-par-creation-mode]"));
+    const sections = Array.from(document.querySelectorAll("[data-par-mode-section]"));
+    if (!radios.length || !sections.length) {
+      return;
+    }
+
+    const applyMode = () => {
+      const active = radios.find((radio) => radio.checked)?.value || "object_storage_folder";
+      sections.forEach((section) => {
+        const isActive = section.dataset.parModeSection === active;
+        section.hidden = !isActive;
+        Array.from(section.querySelectorAll("[data-par-required]")).forEach((field) => {
+          field.required = isActive;
+        });
+      });
+    };
+
+    radios.forEach((radio) => radio.addEventListener("change", applyMode));
+    applyMode();
   })();
 </script>
 {% endblock %}

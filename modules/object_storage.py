@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .config import (
@@ -173,16 +174,25 @@ def _annotate_par_entry(entry):
     annotated["is_active"] = bool(expires_at and expires_at > now)
     annotated["status_label"] = "Active" if annotated["is_active"] else "Expired"
     annotated["expires_at_local"] = format_datetime_local(expires_at)
+    source = str(entry.get("source", "oci")).strip().lower()
+    annotated["source"] = source if source in {"oci", "manual"} else "oci"
+    annotated["source_label"] = "Manual" if annotated["source"] == "manual" else "Object Storage"
     target_type = str(entry.get("target_type", "prefix")).strip().lower()
     annotated["target_type"] = target_type if target_type in {"prefix", "bucket"} else "prefix"
-    annotated["target_display"] = "Bucket" if annotated["target_type"] == "bucket" else (
-        entry.get("object_name") or entry.get("relative_prefix") or "/"
-    )
+    if annotated["target_type"] == "bucket":
+        annotated["target_display"] = "Bucket"
+    elif annotated["source"] == "manual" and not (entry.get("object_name") or entry.get("relative_prefix")):
+        annotated["target_display"] = "Manual URL"
+    else:
+        annotated["target_display"] = entry.get("object_name") or entry.get("relative_prefix") or "/"
     return annotated
 
 
 def _normalize_par_entry(payload):
     allowed_access_types = {value for value, _label in PAR_ACCESS_OPTIONS}
+    source = str(payload.get("source", "")).strip().lower()
+    if source not in {"oci", "manual"}:
+        source = "oci" if str(payload.get("par_id", "")).strip() else "manual"
     target_type = str(payload.get("target_type", "prefix")).strip().lower()
     if target_type not in {"prefix", "bucket"}:
         target_type = "prefix"
@@ -198,6 +208,7 @@ def _normalize_par_entry(payload):
 
     return {
         "id": str(payload.get("id", "")).strip() or str(uuid4()),
+        "source": source,
         "par_id": str(payload.get("par_id", "")).strip(),
         "name": str(payload.get("name", "")).strip(),
         "namespace": str(payload.get("namespace", "")).strip(),
@@ -244,12 +255,14 @@ def get_par_entry_by_id(entry_id):
 def get_par_entries_for_bucket(config):
     namespace = str(config.get("namespace", "")).strip()
     bucket_name = str(config.get("bucket_name", "")).strip()
-    if not namespace or not bucket_name:
-        return []
     return [
         entry
         for entry in load_par_entries()
-        if entry["namespace"] == namespace and entry["bucket_name"] == bucket_name
+        if (
+            entry["namespace"] == namespace and entry["bucket_name"] == bucket_name
+        ) or (
+            entry["source"] == "manual" and not entry["namespace"] and not entry["bucket_name"]
+        )
     ]
 
 
@@ -387,6 +400,7 @@ def create_par_record(config, payload):
     new_entry = _normalize_par_entry(
         {
             "id": str(uuid4()),
+            "source": "oci",
             "par_id": created.id,
             "name": created.name or name,
             "namespace": namespace,
@@ -408,10 +422,74 @@ def create_par_record(config, payload):
     return _annotate_par_entry(new_entry)
 
 
+def _normalize_manual_par_url(value):
+    url = str(value or "").strip()
+    if not url:
+        raise ValueError("Manual PAR URL is required.")
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Manual PAR URL must be a full HTTP or HTTPS URL.")
+    return url
+
+
+def create_manual_par_record(config, payload):
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise ValueError("PAR name is required.")
+
+    par_url = _normalize_manual_par_url(payload.get("manual_par_url") or payload.get("par_url"))
+
+    target_type = str(payload.get("target_type", "prefix")).strip().lower()
+    if target_type not in {"prefix", "bucket"}:
+        raise ValueError("PAR target type must be bucket or prefix.")
+
+    access_type = str(payload.get("access_type", "AnyObjectReadWrite")).strip()
+    allowed_access_types = {value for value, _label in PAR_ACCESS_OPTIONS}
+    if access_type not in allowed_access_types:
+        raise ValueError("Unsupported PAR access type.")
+
+    expires_at = _parse_time(payload.get("expires_at"))
+    if expires_at is None:
+        raise ValueError("PAR expiration is required.")
+    if expires_at <= datetime.now(timezone.utc):
+        raise ValueError("PAR expiration must be in the future.")
+
+    allow_listing = str(payload.get("allow_listing", "")).strip().lower() in {"1", "true", "yes", "on"}
+    new_entry = _normalize_par_entry(
+        {
+            "id": str(uuid4()),
+            "source": "manual",
+            "par_id": "",
+            "name": name,
+            "namespace": str(config.get("namespace", "")).strip(),
+            "bucket_name": str(config.get("bucket_name", "")).strip(),
+            "target_type": target_type,
+            "relative_prefix": "",
+            "object_name": "",
+            "access_type": access_type,
+            "bucket_listing_action": "ListObjects" if allow_listing else "",
+            "created_at": datetime.now(timezone.utc),
+            "expires_at": expires_at,
+            "par_url": par_url,
+            "raw_par_url": par_url,
+        }
+    )
+    entries = load_par_entries()
+    entries.append(new_entry)
+    save_par_entries(entries)
+    return _annotate_par_entry(new_entry)
+
+
 def delete_par_record(config, entry_id):
     entry = get_par_entry_by_id(entry_id)
     if entry is None:
         raise ValueError("PAR entry was not found.")
+
+    if entry["source"] == "manual" or not entry.get("par_id"):
+        remaining_entries = [row for row in load_par_entries() if row["id"] != entry["id"]]
+        save_par_entries(remaining_entries)
+        return entry
 
     client = _get_object_storage_client(config)
     try:
